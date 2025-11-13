@@ -1,39 +1,37 @@
+import api
 import gleam/erlang/process
+import gleam/http
+import html_renderer
 import mist
+import session
 import wisp
 import wisp/wisp_mist
 
-/// A minimal Wisp request handler.
-///
-/// Takes a Wisp `Request` and returns a `Response`.
-fn handle_request(_req: wisp.Request) -> wisp.Response {
-  let html =
-    "<!doctype html>
-     <html>
-       <head>
-         <meta charset=\"utf-8\" />
-         <title>Harmony Chamber v0</title>
-       </head>
-       <body>
-         <h1>Harmony Chamber v0</h1>
-         <p>The multi-agent chamber is online.</p>
-       </body>
-     </html>"
-
-  // Return a 200 OK HTML response with that body
-  wisp.html_response(html, 200)
+fn handle_request(request: wisp.Request) -> wisp.Response {
+  case wisp.path_segments(request) {
+    [] -> handle_home(request)
+    ["api", "state"] -> api.handle_state(request)
+    ["api", "propose_speech"] -> api.handle_propose_speech(request)
+    ["api", "demo_llm"] -> api.handle_demo_llm(request)
+    _ -> wisp.not_found()
+  }
 }
 
-/// Main entry point.
-///
-/// Starts a Mist HTTP server using Wisp and then sleeps forever so it stays alive.
+fn handle_home(request: wisp.Request) -> wisp.Response {
+  wisp.require_method(request, http.Get, fn() {
+    let roster = session.roster()
+    let chamber_state = session.seeded_chamber()
+    let page = html_renderer.render_page(chamber_state, roster)
+
+    wisp.html_response(page, 200)
+  })
+}
+
 pub fn main() {
-  // Enable Wisp's logger for nicer logs
   wisp.configure_logger()
 
   let secret_key_base = "dev_secret_key_change_me"
 
-  // Build and start the HTTP server on 0.0.0.0:8080
   let assert Ok(_) =
     handle_request
     |> wisp_mist.handler(secret_key_base)
@@ -42,6 +40,5 @@ pub fn main() {
     |> mist.port(8080)
     |> mist.start
 
-  // Keep the main process alive forever (server runs in its own process)
   process.sleep_forever()
 }
