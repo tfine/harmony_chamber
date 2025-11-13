@@ -24,11 +24,16 @@ const default_model = "gpt-4.1-mini"
 
 const default_api_base = "https://api.openai.com/v1"
 
+// High-level entrypoint: send a prompt string, get either the LLM text or an LlmError.
 pub fn call_llm(prompt: String) -> Result(String, LlmError) {
+  // Load environment-driven configuration (API key, model, base URL).
   use config <- result.try(load_config())
+
+  // Build JSON body for OpenAI chat/completions.
   let payload = build_payload(prompt, config.model)
   let url = normalise_base(config.api_base) <> "/chat/completions"
 
+  // Construct an HTTP request to the OpenAI API.
   let prepared_request =
     request.to(url)
     |> result.map_error(fn(_) { HttpFailure("Invalid API base URL: " <> url) })
@@ -37,17 +42,23 @@ pub fn call_llm(prompt: String) -> Result(String, LlmError) {
 
   let req =
     base_request
+    // Use POST for chat/completions.
     |> request.set_method(http.Post)
+    // Auth header with bearer token.
     |> request.set_header("authorization", "Bearer " <> config.api_key)
+    // JSON content type.
     |> request.set_header("content-type", "application/json")
+    // Attach body as bits built from the JSON payload string.
     |> request.map(fn(_) { bit_array.from_string(payload) })
 
+  // Execute the HTTP request and map network errors into our LlmError type.
   let sent =
     httpc.send_bits(req)
     |> result.map_error(fn(error) { HttpFailure(http_error_to_string(error)) })
 
   use resp <- result.try(sent)
 
+  // Convert response body bits into a UTF-8 string.
   let body_bits =
     resp.body
     |> bit_array.to_string
@@ -55,6 +66,7 @@ pub fn call_llm(prompt: String) -> Result(String, LlmError) {
 
   use body <- result.try(body_bits)
 
+  // Check status code range. 2xx = success, otherwise treat as HTTP failure.
   case resp.status >= 200 && resp.status < 300 {
     True -> decode_completion(body)
     False ->
@@ -64,6 +76,7 @@ pub fn call_llm(prompt: String) -> Result(String, LlmError) {
   }
 }
 
+// Read configuration from environment variables.
 fn load_config() -> Result(Config, LlmError) {
   case envoy.get("OPENAI_API_KEY") {
     Ok(api_key) -> {
@@ -83,6 +96,7 @@ fn load_config() -> Result(Config, LlmError) {
   }
 }
 
+// Build JSON payload for the chat/completions endpoint.
 fn build_payload(prompt: String, model: String) -> String {
   let messages =
     json.preprocessed_array([
@@ -109,6 +123,7 @@ fn build_payload(prompt: String, model: String) -> String {
   |> json.to_string
 }
 
+// Parse the JSON response body to extract the assistant's message content.
 fn decode_completion(body: String) -> Result(String, LlmError) {
   json.parse(body, completion_decoder())
   |> result.map(fn(content) { string.trim(content) })
@@ -133,6 +148,7 @@ fn message_decoder() -> decode.Decoder(String) {
   decode.success(content)
 }
 
+// Turn a JSON DecodeError into a readable string for logging / debugging.
 fn format_decode_error(error: json.DecodeError) -> String {
   case error {
     json.UnexpectedEndOfInput -> "Unexpected end of input"
@@ -152,6 +168,7 @@ fn format_decode_error(error: json.DecodeError) -> String {
   }
 }
 
+// Map low-level httpc.HttpError to a friendly String.
 fn http_error_to_string(error: httpc.HttpError) -> String {
   case error {
     httpc.InvalidUtf8Response -> "Invalid UTF-8 in response"
@@ -165,6 +182,7 @@ fn http_error_to_string(error: httpc.HttpError) -> String {
   }
 }
 
+// Map ConnectError into a concise description.
 fn format_connect_error(error: httpc.ConnectError) -> String {
   case error {
     httpc.Posix(code) -> code
@@ -172,15 +190,16 @@ fn format_connect_error(error: httpc.ConnectError) -> String {
   }
 }
 
+// Strip any trailing slash from the base URL so we can safely append paths.
 fn normalise_base(base: String) -> String {
   case string.ends_with(base, "/") {
     True -> string.drop_end(base, 1)
     False -> base
   }
 }
-/// Future: call a local Agent SDK sidecar instead of direct OpenAI access.
-/// This function will proxy the same prompt payload to a trusted in-cluster
-/// orchestrator service once that component exists.
-// pub fn call_agent_sdk(input: String) -> Result(String, LlmError) {
-//   todo
-// }
+// /// Future: call a local Agent SDK sidecar instead of direct OpenAI access.
+// /// This function will proxy the same prompt payload to a trusted in-cluster
+// /// orchestrator service once that component exists.
+// // pub fn call_agent_sdk(input: String) -> Result(String, LlmError) {
+// //   todo
+// // }
