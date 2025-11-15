@@ -3,6 +3,12 @@
 [![Package Version](https://img.shields.io/hexpm/v/harmony_chamber)](https://hex.pm/packages/harmony_chamber)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/harmony_chamber/)
 
+ai governance in new harmony
+
+REMEMBER to set:
+
+HARMONY_MAX_LLM_CALLS
+
 ```sh
 gleam add harmony_chamber@1
 ```

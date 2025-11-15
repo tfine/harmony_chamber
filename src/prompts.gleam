@@ -1,145 +1,165 @@
-import chamber
 import debate
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
 import gleam/string
+import messages
 import senators
+import session
 
-pub fn compose_senator_prompt(
+const max_history = 6
+
+pub fn senator_debate_prompt(
   senator: senators.Senator,
-  chamber: chamber.Chamber,
-  recent_turns: List(debate.DebateTurn),
+  sess: session.Session,
 ) -> String {
-  let roster = senators.all()
-  let bill = chamber.bill
-  let transcript_digest = format_turns(recent_turns, roster)
-  let queue_digest = describe_queue(chamber.debate.queue, roster)
+  let bill = sess.bill
+  let history = session.recent_turns(sess, max_history)
+  let inbox = session.inbox_slice(sess, senator.id)
+
+  let history_section =
+    case history {
+      [] ->
+        "No one has spoken yet. Open the floor with a concise framing or state why you are waiting."
+      _ ->
+        history
+        |> list.map(format_history_entry)
+        |> string.join("\n")
+    }
+
+  let messages_section =
+    case inbox {
+      [] ->
+        "- No direct messages, public comments, or press inquiries currently require your reaction."
+      _ ->
+        inbox
+        |> list.map(messages.short_summary)
+        |> list.map(fn(line) { "- " <> line })
+        |> string.join("\n")
+    }
+
+  let amendment_section = format_amendment_section(sess.amendments)
+  let procedure_context = format_procedure_context(sess.status)
 
   string.join(
     [
-      "Harmony Chamber — Senatorial Briefing",
+      "You are a United States Senator. There is no predefined party alignment;",
+      "base your decisions entirely on your biography, your state, and the needs of the bill described below.",
       "",
-      "Bill " <> bill.id <> ": " <> bill.title,
-      "Summary: " <> bill.summary,
-      "Phase: " <> phase_label(chamber.debate.phase),
-      "",
-      "You are " <> senator.name <> " of " <> senator.state <> ".",
-      "Biography refresher:",
+      "=== SENATOR PROFILE ===",
+      "Name: " <> senator.name <> " (" <> senator.state <> ")",
+      "Biography:",
       senator.biography,
       "",
-      "Recent transcript excerpts:",
-      transcript_digest,
-      "",
-      "Queue outlook: " <> queue_digest,
-      "",
-      "Instruction:",
-      "Craft the next floor speech in the first person, with calm but persuasive energy.",
-      "Respond with the speech text only—no headers, JSON, or meta commentary.",
-    ],
-    "\n",
-  )
-}
-
-pub fn compose_orchestrator_prompt(
-  chamber: chamber.Chamber,
-  recent_turns: List(debate.DebateTurn),
-) -> String {
-  let roster = senators.all()
-  let transcript_digest = format_turns(recent_turns, roster)
-  let bill = chamber.bill
-
-  string.join(
-    [
-      "Harmony Chamber — Procedural Briefing",
-      "",
+      "=== CURRENT BILL ===",
       "Bill " <> bill.id <> ": " <> bill.title,
-      "Phase: " <> phase_label(chamber.debate.phase),
+      bill.summary,
       "",
-      "Recent turns under review:",
-      transcript_digest,
+      "Identify key tensions and trade-offs in this bill summary. Consider competing priorities (costs vs preparedness,",
+      "federal vs local control, timelines, labor impact, civil liberties, and regional inequities).",
       "",
-      "Decide whether to keep debate open or call a vote.",
-      "Return ONLY a JSON object with fields {\"action\":\"call_vote\" | \"continue_debate\"} and optionally \"notes\".",
+      "=== PROCEDURAL CONTEXT ===",
+      procedure_context,
+      "",
+      "=== RECENT DEBATE TURNS ===",
+      history_section,
+      "",
+      "=== AMENDMENTS ===",
+      amendment_section,
+      "",
+      "=== INCOMING MESSAGES ===",
+      "You may react to constituents, press, archivists, or other senators. Keep references concise.",
+      messages_section,
+      "",
+      "=== TASK ===",
+      "Decide whether you will speak on this turn. Speak only if you can rebut, add a new argument, propose a full amendment,",
+      "advance procedure, or clearly explain a vote intent shift. Acknowledge or act on relevant messages when helpful.",
+      "",
+      "=== RESPONSE FORMAT ===",
+      "Respond with a single JSON object matching exactly this schema:",
+      "{",
+      "  \"will_speak\": true|false,",
+      "  \"purpose\": \"rebuttal\" | \"new_argument\" | \"amendment\" | \"procedural\" | \"vote_explanation\" | \"message_response\" | \"pass\",",
+      "  \"speech\": \"full speech text if will_speak is true, otherwise an empty string\",",
+      "  \"vote_intent\": \"yea\" | \"nay\" | \"abstain\" | \"undecided\",",
+      "  \"procedure\": \"none\" | \"call_vote\" | \"propose_amendment\"",
+      "}",
+      "",
+      "Rules:",
+      "- Output ONLY the JSON object. No markdown, code fences, or commentary.",
+      "- If will_speak is false, set speech to \"\" but still provide purpose and vote_intent.",
+      "- \"vote_intent\" must be one of: yea, nay, abstain, undecided.",
+      "- Proposing an amendment requires `procedure` = \"propose_amendment\" and your `speech` must contain the full replacement text for the bill summary.",
+      "- All votes are simple majorities. Amendments are voted on before the final bill and replace the bill text if adopted.",
+      "- Use `procedure` = \"call_vote\" when debate has surfaced the necessary considerations and you want to move to a vote.",
+      "- Reference specific prior arguments or messages when speaking; avoid generic filler.",
     ],
     "\n",
   )
 }
 
-pub fn phase_slug(phase: debate.Phase) -> String {
-  case phase {
-    debate.Ongoing -> "ongoing"
-    debate.VoteRequested -> "vote_requested"
-    debate.Voting -> "voting"
-    debate.Completed -> "completed"
+fn format_history_entry(turn: debate.DebateTurn) -> String {
+  "- Turn "
+    <> int.to_string(turn.turn_index)
+    <> ": "
+    <> turn.senator.name
+    <> " ("
+    <> turn.senator.state
+    <> ") — vote intent: "
+    <> debate.vote_intent_label(turn.vote_intent)
+    <> "; purpose: "
+    <> turn.purpose
+    <> "; procedure: "
+    <> debate.procedure_label(turn.procedure)
+    <> ". Summary: "
+    <> trim_speech(turn.speech)
+}
+
+fn trim_speech(text: String) -> String {
+  let cleaned = string.trim(text)
+
+  case string.length(cleaned) > 220 {
+    True -> string.slice(cleaned, 0, 217) <> "..."
+    False -> cleaned
   }
 }
 
-fn phase_label(phase: debate.Phase) -> String {
-  case phase {
-    debate.Ongoing -> "Open Debate"
-    debate.VoteRequested -> "Vote Requested"
-    debate.Voting -> "Voting In Progress"
-    debate.Completed -> "Completed"
-  }
-}
-
-fn format_turns(
-  turns: List(debate.DebateTurn),
-  roster: List(senators.Senator),
-) -> String {
-  case turns {
-    [] -> "No speeches logged yet. You will open the floor."
+fn format_amendment_section(amendments: List(session.Amendment)) -> String {
+  case amendments {
+    [] ->
+      "No amendments have been proposed. You may introduce one by supplying the complete replacement text for the bill."
     _ ->
-      turns
-      |> list.map(fn(turn) {
-        "- Turn #"
-        <> int.to_string(turn.id)
-        <> " — "
-        <> senator_display_name(turn.senator_id, roster)
-        <> ": "
-        <> turn.text
+      amendments
+      |> list.map(fn(amendment) {
+        "- Amendment "
+          <> int.to_string(amendment.id)
+          <> " by "
+          <> amendment.proposer.name
+          <> " — status: "
+          <> format_amendment_status(amendment)
+          <> ". Text: "
+          <> trim_speech(amendment.text)
       })
       |> string.join("\n")
   }
 }
 
-fn describe_queue(queue: List(String), roster: List(senators.Senator)) -> String {
-  case queue {
-    [] -> "No senators currently queued."
-    [next, ..rest] -> {
-      let rest_line =
-        rest
-        |> list.map(fn(id) { senator_display_name(id, roster) })
-        |> string.join(" → ")
-
-      case rest_line {
-        "" ->
-          senator_display_name(next, roster)
-          <> " speaks now; queue recycles after."
-        _ -> senator_display_name(next, roster) <> " speaks now → " <> rest_line
-      }
-    }
+fn format_amendment_status(amendment: session.Amendment) -> String {
+  case amendment.status {
+    session.Pending -> "Pending"
+    session.Adopted -> "Adopted"
+    session.Rejected -> "Rejected"
   }
 }
 
-fn senator_display_name(id: String, roster: List(senators.Senator)) -> String {
-  case find_senator(id, roster) {
-    Some(senator) -> senator.name <> " (" <> senator.state <> ")"
-    None -> id
-  }
-}
-
-fn find_senator(
-  id: String,
-  roster: List(senators.Senator),
-) -> Option(senators.Senator) {
-  case roster {
-    [] -> None
-    [head, ..tail] ->
-      case head.id == id {
-        True -> Some(head)
-        False -> find_senator(id, tail)
-      }
+fn format_procedure_context(status: session.SessionStatus) -> String {
+  case status {
+    session.InDebate ->
+      "Debate is open. Propose amendments or arguments, and request votes when ready."
+    session.Voting(session.BillVote) ->
+      "A final vote on the bill is underway."
+    session.Voting(session.AmendmentVote(id)) ->
+      "A vote is underway on Amendment " <> int.to_string(id) <> "."
+    session.Closed ->
+      "The session is closed and the final result has been recorded."
   }
 }

@@ -5,7 +5,7 @@ pub type Senator {
   Senator(id: String, name: String, state: String, biography: String)
 }
 
-pub fn all() -> List(Senator) {
+pub fn all_senators() -> List(Senator) {
   [
     Senator(
       id: "katie_britt",
@@ -32,10 +32,10 @@ pub fn all() -> List(Senator) {
       biography: "Dan Sullivan was born in Fairview Park, Ohio and spent summers fishing the Kenai before moving north full time, blending Midwestern roots with Alaska's frontier ethic.\n\nHe studied at Harvard University and Georgetown University Law Center and built a career as served as a Marine Corps officer, clerked on the D.C. Circuit, and held national security posts before becoming Alaska's attorney general and commissioner of natural resources. He led multistate fights over the Endangered Species Act and offshore development.\n\nElected in 2014, Sullivan focuses on Arctic shipping lanes, defense modernization, and veterans mental health, often drilling with his Marine reserve unit on weekends.",
     ),
     Senator(
-      id: "kyrsten_sinema",
-      name: "Kyrsten Sinema",
+      id: "ruben_gallego",
+      name: "Ruben Gallego",
       state: "Arizona",
-      biography: "Kyrsten Sinema was born in Tucson, Arizona and spent part of her childhood living in an abandoned gas station in Florida after her parents' divorce, an experience that shaped her views on housing security.\n\nShe studied at Brigham Young University, Arizona State University, and later Harvard's Kennedy School for a mid-career master's and built a career as a social worker and attorney who represented immigrants, victims of domestic violence, and children in foster care before winning seats in the Arizona Legislature and U.S. House. Her policy work frequently blended behavioral health expertise with fiscal pragmatism.\n\nElected to the Senate in 2018 and now an independent, she is known for shuttle diplomacy on infrastructure, gun safety, and tax credits, insisting that durable deals require patient listening sessions back home in Phoenix and Flagstaff.",
+      biography: "Ruben Gallego was born in Chicago to immigrant parents from Colombia and Mexico and was the first in his family to graduate from college.\n\nHe studied at Harvard University and served as a Marine Corps infantryman in Iraq before being elected to the Arizona House, where he pushed veteran mental health services and early investments in broadband. Later, as a U.S. Representative from Phoenix, he became known for oversight of VA waitlists and for advocating Indigenous water rights and border modernisation.\n\nElected to the Senate in 2024, Gallego focuses on veteran care, semiconductor supply chains anchored in Arizona, and pragmatic border security that pairs technology with legal pathway reforms.",
     ),
     Senator(
       id: "mark_kelly",
@@ -56,10 +56,10 @@ pub fn all() -> List(Senator) {
       biography: "Tom Cotton was born in Dardanelle, Arkansas and grew up on his family's cattle farm in Yell County, where long days of baling hay instilled a respect for rural grit.\n\nHe studied at Harvard College and Harvard Law School and built a career as an Army infantry officer who deployed to Iraq and Afghanistan before clerking for a federal judge and practicing law. His 2006 letter challenging the New York Times over classified information thrust him into the national security debate.\n\nElected to the Senate in 2014 after one term in the House, Cotton is a leading voice on defense, intelligence, and supply-chain resilience, often referencing Ranger School lessons on preparation.",
     ),
     Senator(
-      id: "laphonza_butler",
-      name: "Laphonza Butler",
+      id: "adam_schiff",
+      name: "Adam Schiff",
       state: "California",
-      biography: "Laphonza Butler was born in Magnolia, Mississippi and was raised by a widowed mother who worked multiple jobs, giving Butler firsthand insight into the sacrifices of home health aides and domestic workers.\n\nShe studied at Jackson State University and built a career as a union organizer who moved to California to help care workers and janitors win better wages before leading SEIU Local 2015 and later EMILY's List. Her campaigns often paired contract negotiations with leadership academies for women of color.\n\nAppointed in 2023 after the death of Senator Dianne Feinstein, Butler has emphasized voting rights, reproductive healthcare, and the logistics of caregiving, drawing on two decades spent at the negotiating table.",
+      biography: "Adam Schiff was born in Framingham, Massachusetts and moved to California as a child, where he blended academics with debate club and student government.\n\nHe studied at Stanford University and Harvard Law School and served as an Assistant U.S. Attorney before winning seats in the California Senate and later the U.S. House, chairing the House Intelligence Committee. His work spanned national security oversight, wildfire recovery funding, and water resilience for Southern California.\n\nElected to the Senate in 2024, Schiff focuses on technology competition, clean energy transmission, and protecting democratic institutions against foreign interference.",
     ),
     Senator(
       id: "alex_padilla",
@@ -92,10 +92,10 @@ pub fn all() -> List(Senator) {
       biography: "Chris Murphy was born in Wethersfield, Connecticut and was the son of a community college instructor and homemaker who volunteered at local libraries, instilling a love of public service.\n\nHe studied at Williams College and the University of Connecticut School of Law and built a career as a state legislator who went on to serve three terms in the U.S. House, where he specialized in transportation and consumer issues. After the Sandy Hook shooting in his district, he became one of Congress's most visible advocates for gun violence prevention.\n\nSince joining the Senate in 2013 he has led bipartisan talks on background checks, youth mental health, and NATO policy, often linking his proposals to town hall conversations with grieving families.",
     ),
     Senator(
-      id: "tom_carper",
-      name: "Tom Carper",
+      id: "lisa_blunt_rochester",
+      name: "Lisa Blunt Rochester",
       state: "Delaware",
-      biography: "Tom Carper was born in Beckley, West Virginia and grew up in a working-class family before earning a Navy ROTC scholarship that launched him into military aviation.\n\nHe studied at Ohio State University and the University of Delaware for an MBA and built a career as a Navy flight officer and Vietnam veteran who later served as Delaware state treasurer, U.S. congressman, and governor. His gubernatorial years emphasized fiscal discipline, brownfield cleanup, and the launch of the Delaware Air National Guard's C-130 fleet.\n\nServing in the Senate since 2001, Carper is the last Vietnam veteran in the chamber and focuses on postal reform, clean energy manufacturing, and Amtrak's Northeast Corridor, all while mentoring the next generation of Delaware leaders.",
+      biography: "Lisa Blunt Rochester was born in Philadelphia and raised in Wilmington, Delaware, where she watched her parents juggle multiple jobs and community activism.\n\nShe studied at Villanova University and the University of Delaware and built a career as a county liaison, then as Delaware's secretary of labor and deputy secretary of health and social services before becoming the state's at-large member of Congress. There she focused on maternal health, broadband access, and clean energy jobs at the Port of Wilmington.\n\nElected to the Senate in 2024, Blunt Rochester centers her work on supply-chain resilience, Amtrak's Northeast Corridor, and equitable workforce pipelines for Delaware's logistics and fintech sectors.",
     ),
     Senator(
       id: "chris_coons",
@@ -104,10 +104,10 @@ pub fn all() -> List(Senator) {
       biography: "Chris Coons was born in Greenwich, Connecticut and was raised in Hockessin, Delaware, where scouting trips and mission work sparked an early interest in faith-driven service.\n\nHe studied at Amherst College and Yale, where he earned both a law degree and a Master of Divinity and built a career as counsel for W.L. Gore & Associates who later served as president of the New Castle County Council and county executive. He became known for balancing budgets during the Great Recession without slashing core services.\n\nElected in 2010, Coons is now a leading voice on foreign relations, patent policy, and workforce apprenticeships, frequently convening bipartisan prayer breakfasts and manufacturing roundtables.",
     ),
     Senator(
-      id: "marco_rubio",
-      name: "Marco Rubio",
+      id: "ashley_moody",
+      name: "Ashley Moody",
       state: "Florida",
-      biography: "Marco Rubio was born in Miami, Florida and was raised by Cuban immigrant parents who worked as a bartender and hotel maid, and he spent childhood summers with relatives in Las Vegas and South Florida.\n\nHe studied at the University of Florida and the University of Miami School of Law and built a career as a city commissioner and speaker of the Florida House who championed property tax reform and teacher pay raises while teaching night classes. His 2006 book of policy blueprints helped modernize the state GOP's agenda.\n\nSince 2011 he has served on the intelligence and foreign relations committees, pushing for small-business relief after hurricanes and for a tougher line on authoritarian regimes.",
+      biography: "Ashley Moody was born in Plant City, Florida and grew up the daughter of a judge, shadowing him at courthouses across Hillsborough County.\n\nShe studied at the University of Florida, earning business, accounting, and law degrees before becoming the youngest federal prosecutor in the Middle District of Florida and later a circuit judge. As Florida attorney general she led multistate actions on opioid trafficking and consumer fraud and modernised the state's cybercrime unit.\n\nElected to the Senate in 2024, Moody focuses on coastal resiliency funds, fentanyl interdiction, and balancing trade growth with port security for Tampa and Jacksonville.",
     ),
     Senator(
       id: "rick_scott",
@@ -164,10 +164,10 @@ pub fn all() -> List(Senator) {
       biography: "Tammy Duckworth was born in Bangkok, Thailand and moved frequently across Southeast Asia before her family resettled in Honolulu, where she helped care for her younger brother while her parents rebuilt their careers.\n\nShe studied at the University of Hawaii, George Washington University, and later the Army's flight school and built a career as a helicopter pilot in the Illinois Army National Guard who lost both legs when her Black Hawk was shot down in Iraq, then led the Illinois Department of Veterans' Affairs and the federal VA's Office of Public and Intergovernmental Affairs. She championed accessible transit systems and adaptive sports programs for wounded warriors.\n\nElected in 2016, Duckworth focuses on caregiving tax credits, maternal health, and modernizing Guard equipment, often meeting newly injured service members before major votes.",
     ),
     Senator(
-      id: "mike_braun",
-      name: "Mike Braun",
+      id: "jim_banks",
+      name: "Jim Banks",
       state: "Indiana",
-      biography: "Mike Braun was born in Jasper, Indiana and spent summers baling hay and playing high school football in Dubois County, where his family ran a small trucking firm.\n\nHe studied at Wabash College and Harvard Business School and built a career as a logistics entrepreneur who transformed a struggling auto parts distributor into Meyer Distributing, employing thousands across the Midwest. He later served on the Jasper school board and in the Indiana House, pushing balanced budgets and workforce training.\n\nElected in 2018, Braun brings spreadsheets to hearings on healthcare pricing, trucking regulations, and conservation funding for hardwood forests.",
+      biography: "Jim Banks was born in Columbia City, Indiana and worked in his family's real estate business while attending community college.\n\nHe studied at Indiana University and Grace College, joined the U.S. Navy Reserve as a supply corps officer, and served in the Indiana Senate before winning a U.S. House seat where he chaired the Republican Study Committee. His legislative work centered on military readiness, rural broadband, and workforce apprenticeships supported by Indiana's manufacturing base.\n\nElected to the Senate in 2024, Banks focuses on shipbuilding supply chains, semiconductor investment along the I-69 corridor, and a veterans' services overhaul for the Midwest.",
     ),
     Senator(
       id: "todd_young",
@@ -236,10 +236,10 @@ pub fn all() -> List(Senator) {
       biography: "Angus King was born in Alexandria, Virginia and spent summer vacations in Maine, falling in love with the coast long before making Brunswick his permanent home.\n\nHe studied at Dartmouth College and the University of Virginia School of Law and built a career as an energy lawyer turned entrepreneur who invested early in cable television systems and later served two terms as Maine's independent governor. As governor he expanded laptop programs for middle schoolers and preserved millions of acres of forestland.\n\nElected as an independent in 2012, King caucuses with Democrats but often plays bridge-builder on cyber security, national parks, and offshore wind development in the Gulf of Maine.",
     ),
     Senator(
-      id: "ben_cardin",
-      name: "Ben Cardin",
+      id: "angela_alsobrooks",
+      name: "Angela Alsobrooks",
       state: "Maryland",
-      biography: "Ben Cardin was born in Baltimore, Maryland and was raised in a family steeped in city politics; his uncle was the longtime speaker of the Maryland House.\n\nHe studied at the University of Pittsburgh and the University of Maryland School of Law and built a career as elected to the Maryland House at age 23, later serving as speaker before winning a seat in the U.S. House, where he specialized in tax law and Social Security. He authored the retirement-savings provisions that still underpin 401(k) portability.\n\nIn the Senate since 2007, Cardin chairs the Small Business Committee and is a leading voice on human rights, water quality in the Chesapeake Bay, and benefits for federal employees in the Baltimore-Washington corridor.",
+      biography: "Angela Alsobrooks was born in Suitland, Maryland and raised in Prince George's County in a family that stressed public service and church volunteerism.\n\nShe studied at Duke University and the University of Maryland School of Law and built a career as a county prosecutor, later serving as state's attorney and then county executive, where she led school construction plans and Metro expansion negotiations for the Blue Line corridor.\n\nElected to the Senate in 2024, Alsobrooks prioritizes transit funding for the Capital Beltway region, small-business lending for minority entrepreneurs, and crime prevention strategies that pair community mental health with focused deterrence.",
     ),
     Senator(
       id: "chris_van_hollen",
@@ -260,10 +260,10 @@ pub fn all() -> List(Senator) {
       biography: "Ed Markey was born in Malden, Massachusetts and was the son of a milkman and grew up in a triple-decker where he shared a bedroom with his brothers until college.\n\nHe studied at Boston College and Boston College Law School and built a career as a state representative who kept his law books in an ice cream truck while studying for the bar, then served 37 years in the U.S. House focusing on telecom policy and environmental protection. He co-authored the original fuel-economy standards and the Waxman-Markey climate bill.\n\nServing in the Senate since 2013, Markey promotes the Green New Deal, children's online privacy, and funding for the MBTA.",
     ),
     Senator(
-      id: "debbie_stabenow",
-      name: "Debbie Stabenow",
+      id: "elissa_slotkin",
+      name: "Elissa Slotkin",
       state: "Michigan",
-      biography: "Debbie Stabenow was born in Gladwin, Michigan and grew up playing piano in church and organizing 4-H meetings while her parents ran a small hardware store.\n\nShe studied at Michigan State University and built a career as a social worker and county commissioner who later served in the Michigan House and Senate, then in the U.S. House. She ran the statewide mental health system in Ingham County, emphasizing community clinics.\n\nSince 2001 Stabenow has been a leading voice on the farm bill, Great Lakes cleanup, and advanced battery manufacturing, helping Michigan factories retool for electric vehicles.",
+      biography: "Elissa Slotkin was born in New York City and raised on a Michigan farm owned by her family that supplied parts to the auto industry.\n\nShe studied at Cornell University and Columbia University's School of International and Public Affairs, then served as a CIA analyst focused on Iraq and later as acting assistant secretary of defense for international security affairs. In the U.S. House she became known for bipartisan work on PFAS cleanup and reshoring of critical supply chains.\n\nElected to the Senate in 2024, Slotkin concentrates on Great Lakes resilience, semiconductor investment in the Midwest, and veteran and Guard benefits tied to Michigan's large defense footprint.",
     ),
     Senator(
       id: "gary_peters",
@@ -308,10 +308,10 @@ pub fn all() -> List(Senator) {
       biography: "Eric Schmitt was born in Bridgeton, Missouri and was raised by a union electrician and a preschool teacher, playing defensive tackle at De Smet Jesuit High School.\n\nHe studied at Truman State University and Saint Louis University School of Law and built a career as a private attorney who served as an alderman, state senator, state treasurer, and then Missouri attorney general. He spearheaded lawsuits on behalf of parents of children with special needs, inspired by his own son's autism diagnosis.\n\nSchmitt won a Senate seat in 2022 and now concentrates on energy policy, parental rights, and reshoring advanced manufacturing in the St. Louis corridor.",
     ),
     Senator(
-      id: "jon_tester",
-      name: "Jon Tester",
+      id: "tim_sheehy",
+      name: "Tim Sheehy",
       state: "Montana",
-      biography: "Jon Tester was born in Havre, Montana and is a third-generation farmer who still grows organic wheat and lentils near Big Sandy despite losing three fingers in a childhood meat-grinder accident.\n\nHe studied at the University of Great Falls and built a career as a music teacher and school board member who served in the Montana Senate, rising to president before winning a U.S. Senate seat in 2006. He helped write the state's constitutional ban on dark money.\n\nTester chairs the Veterans Affairs Committee and fights for rural broadband and irrigation projects, often reminding colleagues that he flies home each weekend to fix tractors on the family farm.",
+      biography: "Tim Sheehy was born in Stillwater, Minnesota and attended the U.S. Naval Academy, where he trained as a Navy SEAL and later deployed to Afghanistan and Iraq.\n\nAfter combat service he settled in Montana and founded Bridger Aerospace, a wildfire aviation and drone services company that works closely with the Forest Service. He also runs a ranch near Bozeman and mentors veteran entrepreneurs in the Mountain West.\n\nElected to the Senate in 2024, Sheehy focuses on wildfire prevention, resilient timber and grazing policies, and ensuring the Air National Guard and missile fields across Montana receive modern equipment and housing.",
     ),
     Senator(
       id: "steve_daines",
@@ -356,10 +356,10 @@ pub fn all() -> List(Senator) {
       biography: "Maggie Hassan was born in Boston, Massachusetts and is the daughter of an Army research physician who instilled a commitment to public service and problem-solving.\n\nShe studied at Brown University and Northeastern University School of Law and built a career as served as New Hampshire's governor, where she expanded Medicaid and negotiated a commuter rail agreement, after previously working as an attorney and state senator. Her advocacy for people with disabilities is informed by raising a son with cerebral palsy.\n\nElected to the Senate in 2016, Hassan focuses on cybersecurity workforce training, fentanyl interdiction, and lowering energy costs for New England families.",
     ),
     Senator(
-      id: "bob_menendez",
-      name: "Bob Menendez",
+      id: "andy_kim",
+      name: "Andy Kim",
       state: "New Jersey",
-      biography: "Bob Menendez was born in New York City, New York and was raised in Union City by Cuban immigrants who worked sewing jobs and insisted he take nightly public speaking classes.\n\nHe studied at Saint Peter's University and Rutgers Law School and built a career as became the youngest mayor in the city at 32, later serving in the New Jersey legislature and the U.S. House, where he focused on housing and transportation. He chaired the House Democratic Caucus and negotiated multiple Hudson River tunnel agreements.\n\nAppointed in 2006 and subsequently elected, Menendez often leads on Latin American policy, port security, and chemical plant safety, citing his Hudson County roots.",
+      biography: "Andy Kim was born in Boston, Massachusetts and raised in southern New Jersey by Korean immigrant parents who ran a liquor store and stressed public education and service.\n\nHe studied at the University of Chicago and Oxford as a Rhodes Scholar and built a career as a national security adviser, serving on the National Security Council and as a civilian adviser in Afghanistan. Elected to the U.S. House in 2018, he focused on veterans' health, resiliency at Joint Base McGuire-Dix-Lakehurst, and flood mitigation along the Jersey Shore.\n\nElected to the Senate in 2024, Kim works on military readiness, coastal infrastructure for Barnegat Bay, and ethics reforms to rebuild trust in New Jersey politics.",
     ),
     Senator(
       id: "cory_booker",
@@ -375,7 +375,7 @@ pub fn all() -> List(Senator) {
     ),
     Senator(
       id: "ben_ray_lujan",
-      name: "Ben Ray Lujan",
+      name: "Ben Ray Luján",
       state: "New Mexico",
       biography: "Ben Ray Lujan was born in Santa Fe, New Mexico and is the son of longtime state House Speaker Ben Lujan and grew up near the Pojoaque Valley attending pueblo dances and rodeos.\n\nHe studied at the University of New Mexico and built a career as held posts in the state's cultural affairs and public regulation commissions before winning a U.S. House seat in 2008, eventually chairing the Democratic Congressional Campaign Committee. He helped expand broadband to rural pueblos and launched the 'Young Guns' recruitment program.\n\nElected in 2020, Lujan now focuses on wildfire recovery, microelectronics research at Sandia and Los Alamos, and healthcare access for tribal communities.",
     ),
@@ -416,16 +416,16 @@ pub fn all() -> List(Senator) {
       biography: "Kevin Cramer was born in Rolette, North Dakota and grew up in a railroad family, bagging groceries and delivering papers in Kindred.\n\nHe studied at Concordia College and the University of Mary and built a career as served as state tourism director, economic development director, and Public Service Commissioner before winning a U.S. House seat in 2012. He oversaw pipeline safety and telecom expansion during the oil boom.\n\nElected to the Senate in 2018, Cramer advocates for carbon capture, national defense missions at Grand Forks, and pro-life policies.",
     ),
     Senator(
-      id: "sherrod_brown",
-      name: "Sherrod Brown",
+      id: "bernie_moreno",
+      name: "Bernie Moreno",
       state: "Ohio",
-      biography: "Sherrod Brown was born in Mansfield, Ohio and is the son of a small-town doctor and a mother who led the local PTA, and he wore a union-made suit to high school graduation.\n\nHe studied at Ohio State University for undergraduate and master's degrees and later the John F. Kennedy School of Government and built a career as served in the Ohio House, as Ohio's secretary of state, and then 14 years in the U.S. House representing the industrial Mahoning Valley. He became known for his annual manufacturing report cards and his raspy-voiced floor speeches defending workers.\n\nSince 2007 Brown has championed the CHIPS and Science Act, pension relief for Teamsters, and rail safety reforms after hazardous derailments.",
+      biography: "Bernie Moreno was born in Bogotá, Colombia and immigrated to the United States with his family at age five, growing up in the Boston area before heading to college in Michigan.\n\nHe studied at the University of Michigan and built a career as a luxury auto dealer in Ohio, later investing in blockchain technology and workforce training programs tied to Cleveland's port and manufacturing corridor. He chaired regional civic groups focused on entrepreneurship and public-private partnerships.\n\nElected to the Senate in 2024, Moreno prioritizes trade competitiveness on the Great Lakes, precision manufacturing apprenticeships, and stern oversight of border and visa systems to ensure legal pathways keep pace with employer demand.",
     ),
     Senator(
-      id: "jd_vance",
-      name: "JD Vance",
+      id: "jon_husted",
+      name: "Jon Husted",
       state: "Ohio",
-      biography: "JD Vance was born in Middletown, Ohio and was raised by his grandparents amid factory layoffs, a story he chronicled in his memoir 'Hillbilly Elegy'.\n\nHe studied at Ohio State University and Yale Law School and built a career as a Marine Corps public affairs specialist who deployed to Iraq, later working in venture capital with Steve Case before launching a seed fund for Midwest startups. He founded 'Our Ohio Renewal' to fight opioid addiction in Appalachia.\n\nElected in 2022, Vance now focuses on rail safety, reshoring advanced manufacturing, and limiting American involvement in foreign wars without clear objectives.",
+      biography: "Jon Husted was born in Royal Oak, Michigan and adopted by a working-class family in Montpelier, Ohio, where sports scholarships opened doors to college.\n\nHe studied at the University of Dayton, played on a national championship football team, and entered public service as a state representative, later becoming Speaker of the Ohio House and then Secretary of State. As lieutenant governor he led broadband expansion and workforce initiatives linking community colleges to advanced manufacturing employers.\n\nAppointed to the Senate in 2025 after the vice president vacated the seat, Husted now focuses on rail safety, reshoring EV supply chains around Columbus and Toledo, and modernising federal cyber standards for local governments.",
     ),
     Senator(
       id: "james_lankford",
@@ -452,10 +452,10 @@ pub fn all() -> List(Senator) {
       biography: "Jeff Merkley was born in Myrtle Creek, Oregon and spent part of his childhood in a mobile home park while his father worked as a mechanic, instilling empathy for families on the edge.\n\nHe studied at Stanford University and Princeton University's Woodrow Wilson School and built a career as an energy analyst at the Congressional Budget Office who returned to Oregon to serve in the state legislature, becoming speaker of the House during the Great Recession. He expanded affordable housing trust funds and cracked down on payday lending.\n\nSince 2009 Merkley has pressed for climate justice, reforming the Senate filibuster, and supporting refugees who resettle in the Pacific Northwest.",
     ),
     Senator(
-      id: "bob_casey",
-      name: "Bob Casey Jr.",
+      id: "dave_mccormick",
+      name: "Dave McCormick",
       state: "Pennsylvania",
-      biography: "Bob Casey Jr. was born in Scranton, Pennsylvania and is the son of the late Governor Bob Casey Sr., and learned retail politics by shaking hands outside Lackawanna County churches.\n\nHe studied at the College of the Holy Cross and Catholic University's Columbus School of Law and built a career as served as Pennsylvania's auditor general and treasurer, focusing on nursing home inspections and college savings programs. He created the state's first fraud tip line for Medicaid abuse.\n\nElected in 2006, Casey now concentrates on child tax credits, autism research, and the health of workers who build the Scranton Army Ammunition Plant.",
+      biography: "Dave McCormick was born in Washington, Pennsylvania and raised in Bloomsburg, where his family's apple orchard doubled as his first job site.\n\nHe studied at West Point and served as an Army Ranger during the Gulf War before earning a PhD at Princeton and moving into business, eventually leading a major hedge fund. In government he served as Undersecretary of the Treasury for International Affairs, working on export controls and currency policy.\n\nElected to the Senate in 2024, McCormick focuses on critical minerals, supply chain resilience for Pennsylvania manufacturers, and support for veterans transitioning into tech and energy jobs across the Allegheny corridor.",
     ),
     Senator(
       id: "john_fetterman",
@@ -530,10 +530,10 @@ pub fn all() -> List(Senator) {
       biography: "Mike Lee was born in Mesa, Arizona and was raised in Provo, Utah, where his father served as solicitor general and instilled a love of constitutional history.\n\nHe studied at Brigham Young University for both undergraduate and law degrees and built a career as clerked for Justice Samuel Alito, worked as an assistant U.S. attorney, and served as general counsel to Utah Governor Jon Huntsman. He later became a prominent litigator in energy and technology cases.\n\nElected in 2010, Lee is known for constitutional originalism, reforms to the Antiquities Act, and bipartisan bills on rail safety and tech competition.",
     ),
     Senator(
-      id: "mitt_romney",
-      name: "Mitt Romney",
+      id: "john_curtis",
+      name: "John Curtis",
       state: "Utah",
-      biography: "Mitt Romney was born in Detroit, Michigan and is the son of auto executive and Michigan Governor George Romney, and spent part of his youth in Bloomfield Hills before serving a Mormon mission in France.\n\nHe studied at Brigham Young University and the joint JD/MBA program at Harvard and built a career as co-founded Bain Capital, rescued the 2002 Salt Lake City Olympics from financial crisis, and served as governor of Massachusetts. His healthcare reforms in Massachusetts inspired elements of the Affordable Care Act.\n\nElected in 2018, Romney focuses on fiscal responsibility, Ukraine aid, and bipartisan rules changes that strengthen the Senate as an institution.",
+      biography: "John Curtis was born in Salt Lake City, Utah and spent much of his career in the private sector as a small-business owner and executive before entering politics.\n\nHe studied at Brigham Young University and later served as mayor of Provo, where he oversaw downtown revitalization and fiber broadband expansion. Elected to the U.S. House in 2017, he founded the Conservative Climate Caucus and worked on public lands collaboration across the Intermountain West.\n\nElected to the Senate in 2024, Curtis concentrates on water allocation in the Colorado River Basin, wildfire mitigation for Wasatch Front communities, and clean-tech manufacturing that leverages Utah's universities and startups.",
     ),
     Senator(
       id: "bernie_sanders",
@@ -572,10 +572,10 @@ pub fn all() -> List(Senator) {
       biography: "Maria Cantwell was born in Indianapolis, Indiana and moved to Ohio as a child, helping in her parents' ice cream shop before volunteering for local fair-housing campaigns.\n\nShe studied at Miami University in Ohio and built a career as served in the Washington House, the U.S. House, and as an executive at streaming pioneer RealNetworks before returning to public service. She helped bring the Seattle Mariners ballpark deal across the finish line and defended the Hanford cleanup budget.\n\nElected in 2000, Cantwell is a leader on aviation safety, net neutrality, and fuel economy standards that keep Boeing, Amazon, and rural cooperatives thriving together.",
     ),
     Senator(
-      id: "joe_manchin",
-      name: "Joe Manchin",
+      id: "jim_justice",
+      name: "Jim Justice",
       state: "West Virginia",
-      biography: "Joe Manchin was born in Farmington, West Virginia and is the grandson of a grocery store owner known as 'Papa Joe,' and he grew up delivering coal company checks around Marion County.\n\nHe studied at West Virginia University and built a career as started a coal brokerage, served in the state House and Senate, and became secretary of state before winning the governorship in 2004. He guided West Virginia through the Sago Mine disaster and launched the PROMISE scholarship.\n\nAppointed to the Senate in 2010 and repeatedly reelected, Manchin pushes for energy compromise packages, prescription drug savings, and broadband for Appalachian hollers.",
+      biography: "Jim Justice was born in Charleston, West Virginia and grew up running heavy equipment on his family's farms and coal operations, experience he credits for his focus on extraction safety.\n\nHe studied at Marshall University and built a business empire spanning coal, agriculture, and resorts, including rescuing The Greenbrier out of bankruptcy. Elected governor in 2016, he invested in road upgrades, broadband expansion, and teacher pay raises while presiding over flood recovery efforts.\n\nElected to the Senate in 2024, Justice emphasizes energy dominance with carbon capture, workforce training for miners moving into construction and manufacturing, and Appalachian flood control projects that protect holler communities.",
     ),
     Senator(
       id: "shelley_moore_capito",
@@ -608,4 +608,8 @@ pub fn all() -> List(Senator) {
       biography: "Cynthia Lummis was born in Cheyenne, Wyoming and was elected to the state House at 24 and balanced legislative sessions with tending her family's cattle ranch.\n\nShe studied at the University of Wyoming for both animal science and law degrees and built a career as served as state treasurer, on the Wyoming Supreme Court's staff, and in the U.S. House from 2008 to 2016 before returning to ranching. She became an early advocate for digital asset regulation after investing personally in bitcoin.\n\nElected in 2020, Lummis pushes for responsible crypto frameworks, Powder River Basin jobs, and protection of the Wyoming Range.",
     ),
   ]
+}
+
+pub fn all() -> List(Senator) {
+  all_senators()
 }
