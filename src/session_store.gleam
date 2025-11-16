@@ -4,7 +4,7 @@ import gleam/option.{type Option, None, Some}
 import session
 import simplifile
 
-const snapshot_tag = "harmony_snapshot_v2"
+const snapshot_tag = "harmony_snapshot_v4"
 
 @external(erlang, "erlang", "term_to_binary")
 fn term_to_binary(value: a) -> BitArray

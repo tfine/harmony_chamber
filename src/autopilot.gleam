@@ -1,6 +1,5 @@
 import gleam/erlang/process
 import gleam/io
-import gleam/option.{type Option, None, Some}
 import session
 import session_manager
 import session_runner
@@ -42,31 +41,26 @@ pub fn start(
   settings: Settings,
   manager: session_manager.Manager,
   roster: List(senators.Senator),
-) -> Option(Autopilot) {
-  case settings.enabled {
-    False -> None
-    True -> {
-      let handshake = process.new_subject()
-      let state = State(
-        manager: manager,
-        roster: roster,
-        tick_ms: settings.tick_ms,
-        steps_per_tick: settings.steps_per_tick,
-        snapshot_path: settings.snapshot_path,
-        running: True,
-      )
+) -> Autopilot {
+  let handshake = process.new_subject()
+  let state = State(
+    manager: manager,
+    roster: roster,
+    tick_ms: settings.tick_ms,
+    steps_per_tick: settings.steps_per_tick,
+    snapshot_path: settings.snapshot_path,
+    running: settings.enabled,
+  )
 
-      let _pid =
-        process.spawn(fn() {
-          let mailbox = process.new_subject()
-          process.send(handshake, mailbox)
-          loop(mailbox, state)
-        })
+  let _pid =
+    process.spawn(fn() {
+      let mailbox = process.new_subject()
+      process.send(handshake, mailbox)
+      loop(mailbox, state)
+    })
 
-      let mailbox = process.receive_forever(handshake)
-      Some(Autopilot(mailbox: mailbox))
-    }
-  }
+  let mailbox = process.receive_forever(handshake)
+  Autopilot(mailbox: mailbox)
 }
 
 pub fn pause(pilot: Autopilot) -> Nil {

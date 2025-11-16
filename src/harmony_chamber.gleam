@@ -1,10 +1,11 @@
 import autopilot
+import envoy
 import gleam/erlang/process
 import gleam/http
-import gleam/io
 import gleam/int
+import gleam/io
+import gleam/option.{None, Some}
 import gleam/string
-import gleam/option.{type Option, None, Some}
 import html_renderer
 import mist
 import senators
@@ -14,11 +15,10 @@ import session_runner
 import session_store
 import wisp
 import wisp/wisp_mist
-import envoy
 
 fn handle_request(
   manager: session_manager.Manager,
-  autop: Option(autopilot.Autopilot),
+  autop: autopilot.Autopilot,
   steps_per_request: Int,
   snapshot_path: String,
   roster: List(senators.Senator),
@@ -34,15 +34,16 @@ fn handle_request(
         roster,
         request,
       )
-    ["autopilot", action] ->
-      handle_autopilot_action(action, autop, request)
+    ["docket"] -> handle_docket(manager, request)
+    ["history"] -> handle_history(manager, request)
+    ["autopilot", action] -> handle_autopilot_action(action, autop, request)
     _ -> wisp.not_found()
   }
 }
 
 fn handle_home(
   manager: session_manager.Manager,
-  autop: Option(autopilot.Autopilot),
+  autop: autopilot.Autopilot,
   steps_per_request: Int,
   snapshot_path: String,
   roster: List(senators.Senator),
@@ -64,51 +65,61 @@ fn handle_home(
   })
 }
 
-fn handle_autopilot_action(
-  action: String,
-  autop: Option(autopilot.Autopilot),
+fn handle_docket(
+  manager: session_manager.Manager,
   request: wisp.Request,
 ) -> wisp.Response {
-  wisp.require_method(request, http.Post, fn() {
-    case autop {
-      None -> wisp.redirect("/")
-      Some(pilot) -> {
-        case action {
-          "pause" -> autopilot.pause(pilot)
-          "resume" -> autopilot.resume(pilot)
-          _ -> Nil
-        }
-        wisp.redirect("/")
-      }
-    }
+  wisp.require_method(request, http.Get, fn() {
+    let snapshot = session_manager.current(manager)
+    let page =
+      html_renderer.render_docket_page(
+        snapshot.bill,
+        snapshot.completed_bills,
+        snapshot.upcoming_bills,
+      )
+    wisp.html_response(page, 200)
   })
 }
 
-fn current_bill() -> session.Bill {
-  session.Bill(
-    id: "HC-001",
-    title: "Civic Resilience Act",
-    summary: "Modernizes emergency communications, hardens public works, and funds rapid response teams so that every community can withstand storms, fires, and infrastructure shocks.",
-  )
+fn handle_history(
+  manager: session_manager.Manager,
+  request: wisp.Request,
+) -> wisp.Response {
+  wisp.require_method(request, http.Get, fn() {
+    let snapshot = session_manager.current(manager)
+    let page = html_renderer.render_history_page(snapshot.completed_bills)
+    wisp.html_response(page, 200)
+  })
+}
+
+fn handle_autopilot_action(
+  action: String,
+  autop: autopilot.Autopilot,
+  request: wisp.Request,
+) -> wisp.Response {
+  wisp.require_method(request, http.Post, fn() {
+    case action {
+      "pause" -> autopilot.pause(autop)
+      "resume" -> autopilot.resume(autop)
+      _ -> Nil
+    }
+    wisp.redirect("/")
+  })
 }
 
 pub fn main() {
   wisp.configure_logger()
 
   let roster = senators.all_senators()
-  let bill = current_bill()
   let snapshot_path = snapshot_file_path()
-  let initial_session = load_or_init_session(bill, snapshot_path)
+  let docket = bill_docket()
+  let initial_session = load_or_init_session(snapshot_path, docket)
   let manager = session_manager.start(initial_session)
   let secret_key_base = "dev_secret_key_change_me"
   let steps_per_request = request_step_setting()
 
   let autop_handle =
-    autopilot.start(
-      autopilot_settings(snapshot_path),
-      manager,
-      roster,
-    )
+    autopilot.start(autopilot_settings(snapshot_path), manager, roster)
 
   let router = fn(request) {
     handle_request(
@@ -133,17 +144,51 @@ pub fn main() {
 }
 
 fn load_or_init_session(
-  bill: session.Bill,
   snapshot_path: String,
+  docket: List(session.Bill),
 ) -> session.Session {
   case session_store.load(snapshot_path) {
-    Ok(Some(sess)) -> sess
-    Ok(None) -> session.initial_session(bill)
+    Ok(Some(sess)) -> session.ensure_active(sess)
+    Ok(None) -> start_from_docket(docket)
     Error(message) -> {
-      io.println("Failed to load session snapshot (" <> snapshot_path <> "): " <> message)
-      session.initial_session(bill)
+      io.println(
+        "Failed to load session snapshot (" <> snapshot_path <> "): " <> message,
+      )
+      start_from_docket(docket)
     }
   }
+}
+
+fn start_from_docket(docket: List(session.Bill)) -> session.Session {
+  case docket {
+    [] ->
+      session.initial_session(session.Bill(
+        id: "HC-000",
+        title: "Placeholder Resolution",
+        summary: "Fallback bill used when no docket is supplied.",
+      ))
+    [first, ..rest] -> session.initial_session_with_docket(first, rest)
+  }
+}
+
+fn bill_docket() -> List(session.Bill) {
+  [
+    session.Bill(
+      id: "HC-001",
+      title: "Civic Resilience Act",
+      summary: "Modernizes emergency communications, hardens public works, and funds rapid response teams so that every community can withstand storms, fires, and infrastructure shocks.",
+    ),
+    session.Bill(
+      id: "HC-002",
+      title: "Rural Innovation Grants",
+      summary: "Launches a rural innovation trust fund that backs broadband fiber loops, remote health hubs, and agricultural robotics cooperatives across all 50 states.",
+    ),
+    session.Bill(
+      id: "HC-003",
+      title: "Clean Grid Compact",
+      summary: "Coordinates interstate transmission permitting, workforce training, and resilience funding to accelerate deployment of clean power lines and microgrids.",
+    ),
+  ]
 }
 
 fn persist_snapshot(path: String, sess: session.Session) {
@@ -158,16 +203,13 @@ fn request_step_setting() -> Int {
   env_int("HARMONY_STEPS_PER_REQUEST", 3)
 }
 
-fn autopilot_status(autop: Option(autopilot.Autopilot)) -> Option(Bool) {
-  case autop {
-    None -> None
-    Some(pilot) -> Some(autopilot.status(pilot))
-  }
+fn autopilot_status(autop: autopilot.Autopilot) -> Bool {
+  autopilot.status(autop)
 }
 
 fn autopilot_settings(snapshot_path: String) -> autopilot.Settings {
-  let enabled = env_bool("HARMONY_AUTOPILOT_ENABLED", False)
-  let tick_ms = env_int("HARMONY_AUTOPILOT_TICK_MS", 5_000)
+  let enabled = env_bool("HARMONY_AUTOPILOT_ENABLED", True)
+  let tick_ms = env_int("HARMONY_AUTOPILOT_TICK_MS", 5000)
   let steps_per_tick = env_int("HARMONY_AUTOPILOT_STEPS", 3)
 
   autopilot.Settings(

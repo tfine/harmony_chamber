@@ -6,14 +6,12 @@ import messages
 import senators
 import session
 
-const max_history = 6
-
 pub fn senator_debate_prompt(
   senator: senators.Senator,
   sess: session.Session,
 ) -> String {
   let bill = sess.bill
-  let history = session.recent_turns(sess, max_history)
+  let history = sess.debate_turns
   let inbox = session.inbox_slice(sess, senator.id)
 
   let history_section =
@@ -39,6 +37,7 @@ pub fn senator_debate_prompt(
 
   let amendment_section = format_amendment_section(sess.amendments)
   let procedure_context = format_procedure_context(sess.status)
+  let vote_section = format_vote_section(sess)
 
   string.join(
     [
@@ -65,6 +64,9 @@ pub fn senator_debate_prompt(
       "",
       "=== AMENDMENTS ===",
       amendment_section,
+      "",
+      "=== VOTE STATUS ===",
+      vote_section,
       "",
       "=== INCOMING MESSAGES ===",
       "You may react to constituents, press, archivists, or other senators. Keep references concise.",
@@ -161,5 +163,23 @@ fn format_procedure_context(status: session.SessionStatus) -> String {
       "A vote is underway on Amendment " <> int.to_string(id) <> "."
     session.Closed ->
       "The session is closed and the final result has been recorded."
+  }
+}
+
+fn format_vote_section(sess: session.Session) -> String {
+  case sess.status {
+    session.Voting(_focus) -> {
+      let tally = session.vote_progress(sess)
+      let session.VoteTally(yea: yea, nay: nay, abstain: abstain) = tally
+      "Voting underway — current totals: Yea "
+        <> int.to_string(yea)
+        <> ", Nay "
+        <> int.to_string(nay)
+        <> ", Abstain "
+        <> int.to_string(abstain)
+        <> ". Senators without a recorded vote may wait, but will be reminded every 20 seconds until the 2-minute vote window closes."
+    }
+    _ ->
+      "No vote is active. Focus on substantive debate, amendments, or procedural motions."
   }
 }

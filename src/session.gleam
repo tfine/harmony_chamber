@@ -38,6 +38,15 @@ pub type Amendment {
   )
 }
 
+pub type CompletedBill {
+  CompletedBill(
+    bill: Bill,
+    amendments: List(Amendment),
+    transcript_text: String,
+    result: Option(VoteResult),
+  )
+}
+
 pub type Session {
   Session(
     bill: Bill,
@@ -53,6 +62,10 @@ pub type Session {
     messages: List(messages.Message),
     amendments: List(Amendment),
     next_amendment_id: Int,
+    upcoming_bills: List(Bill),
+    completed_bills: List(CompletedBill),
+    vote_queue: List(String),
+    vote_reminders_left: Int,
   )
 }
 
@@ -67,6 +80,7 @@ pub type VoteResult {
 const call_vote_threshold = 2
 const automatic_vote_turn_limit = 16
 const default_inbox_limit = 6
+const vote_reminder_rounds = 6
 
 pub fn initial_session(bill: Bill) -> Session {
   Session(
@@ -83,6 +97,20 @@ pub fn initial_session(bill: Bill) -> Session {
     messages: [],
     amendments: [],
     next_amendment_id: 1,
+    upcoming_bills: [],
+    completed_bills: [],
+    vote_queue: [],
+    vote_reminders_left: vote_reminder_rounds,
+  )
+}
+
+pub fn initial_session_with_docket(
+  bill: Bill,
+  upcoming: List(Bill),
+) -> Session {
+  Session(
+    ..initial_session(bill),
+    upcoming_bills: upcoming,
   )
 }
 
@@ -231,8 +259,17 @@ pub fn vote_focus_for_transition(
   }
 }
 
-pub fn begin_vote(session: Session, focus: VoteFocus) -> Session {
-  Session(..session, status: Voting(focus))
+pub fn begin_vote(
+  session: Session,
+  focus: VoteFocus,
+  order: List(senators.Senator),
+) -> Session {
+  Session(
+    ..session,
+    status: Voting(focus),
+    vote_queue: senator_ids(order),
+    vote_reminders_left: vote_reminder_rounds,
+  )
 }
 
 pub fn tally_votes(session: Session) -> VoteTally {
@@ -268,6 +305,8 @@ fn close_with_result(session: Session) -> Session {
     final_result: Some(result),
     last_error: None,
   )
+  |> record_completion(result)
+  |> advance_to_next_bill()
 }
 
 fn resolve_amendment_vote(session: Session, amendment_id: Int) -> Session {
@@ -305,6 +344,9 @@ fn resolve_amendment_vote(session: Session, amendment_id: Int) -> Session {
         amendments: updated_amendments,
         bill: updated_bill,
         status: InDebate,
+        vote_intents: dict.new(),
+        vote_queue: [],
+        vote_reminders_left: vote_reminder_rounds,
       )
     }
   }
@@ -366,4 +408,133 @@ fn find_amendment(
         False -> find_amendment(tail, id)
       }
   }
+}
+
+fn senator_ids(senators_list: List(senators.Senator)) -> List(String) {
+  senators_list
+  |> list.map(fn(senator) { senator.id })
+}
+
+pub fn next_vote_target(session: Session) -> Option(String) {
+  case session.vote_queue {
+    [] -> None
+    [head, .._] -> Some(head)
+  }
+}
+
+pub fn drop_vote_target(session: Session) -> Session {
+  case session.vote_queue {
+    [] -> session
+    [_head, ..tail] -> Session(..session, vote_queue: tail)
+  }
+}
+
+pub fn outstanding_voters(
+  session: Session,
+  roster: List(senators.Senator),
+) -> List(String) {
+  roster
+  |> list.fold([], fn(acc, senator) {
+    case vote_intent_for(session, senator.id) {
+      None -> [senator.id, ..acc]
+      Some(debate.Undecided) -> [senator.id, ..acc]
+      _ -> acc
+    }
+  })
+  |> list.reverse
+}
+
+pub fn requeue_outstanding(
+  session: Session,
+  outstanding: List(String),
+) -> Session {
+  Session(
+    ..session,
+    vote_queue: outstanding,
+    vote_reminders_left: session.vote_reminders_left - 1,
+  )
+}
+
+pub fn force_vote_completion(
+  session: Session,
+  outstanding: List(String),
+) -> Session {
+  let updated =
+    outstanding
+    |> list.fold(session.vote_intents, fn(dict, senator_id) {
+      dict.insert(dict, senator_id, debate.Abstain)
+    })
+
+  Session(
+    ..session,
+    vote_intents: updated,
+    vote_queue: [],
+  )
+}
+
+fn record_completion(session: Session, result: VoteResult) -> Session {
+  let completed =
+    CompletedBill(
+      bill: session.bill,
+      amendments: session.amendments,
+      transcript_text: format_transcript(session.debate_turns),
+      result: Some(result),
+    )
+
+  Session(
+    ..session,
+    completed_bills: [completed, ..session.completed_bills],
+  )
+}
+
+pub fn advance_to_next_bill(session: Session) -> Session {
+  case session.upcoming_bills {
+    [] -> session
+    [next, ..rest] ->
+      Session(
+        bill: next,
+        debate_turns: [],
+        vote_intents: dict.new(),
+        status: InDebate,
+        final_result: None,
+        next_turn_index: 1,
+        next_speaker_index: 0,
+        last_error: None,
+        llm_calls_used: session.llm_calls_used,
+        llm_calls_limit: session.llm_calls_limit,
+        messages: [],
+        amendments: [],
+        next_amendment_id: 1,
+        upcoming_bills: rest,
+        completed_bills: session.completed_bills,
+        vote_queue: [],
+        vote_reminders_left: vote_reminder_rounds,
+      )
+  }
+}
+
+pub fn vote_progress(session: Session) -> VoteTally {
+  tally_votes(session)
+}
+
+pub fn ensure_active(session: Session) -> Session {
+  case session.status {
+    Closed -> advance_to_next_bill(session)
+    _ -> session
+  }
+}
+
+fn format_transcript(turns: List(debate.DebateTurn)) -> String {
+  turns
+  |> list.map(fn(turn) {
+    "Turn "
+      <> int.to_string(turn.turn_index)
+      <> " — "
+      <> turn.senator.name
+      <> " ("
+      <> turn.senator.state
+      <> "):\n"
+      <> turn.speech
+  })
+  |> string.join("\n\n")
 }
