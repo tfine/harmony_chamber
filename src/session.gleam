@@ -119,16 +119,22 @@ pub fn apply_debate_decision(
   senator: senators.Senator,
   decision: debate.DebateDecision,
 ) -> Session {
+  let #(safe_decision, warning) = guard_empty_speech(decision, senator)
+  let base_session = case warning {
+    Some(message) -> record_error(session, message)
+    None -> session
+  }
+
   let debate.SpeakDecision(
     will_speak,
     speech,
     vote_intent,
     purpose,
     procedure,
-  ) = decision
+  ) = safe_decision
 
   let vote_intents =
-    dict.insert(session.vote_intents, senator.id, vote_intent)
+    dict.insert(base_session.vote_intents, senator.id, vote_intent)
 
   let should_record_turn =
     will_speak
@@ -140,7 +146,7 @@ pub fn apply_debate_decision(
       True -> {
         let turn =
           debate.DebateTurn(
-            turn_index: session.next_turn_index,
+            turn_index: base_session.next_turn_index,
             senator: senator,
             speech: speech,
             vote_intent: vote_intent,
@@ -148,15 +154,18 @@ pub fn apply_debate_decision(
             procedure: procedure,
           )
 
-        #(list.append(session.debate_turns, [turn]), session.next_turn_index + 1)
+        #(
+          list.append(base_session.debate_turns, [turn]),
+          base_session.next_turn_index + 1,
+        )
       }
       False ->
-        #(session.debate_turns, session.next_turn_index)
+        #(base_session.debate_turns, base_session.next_turn_index)
     }
 
   let updated =
     Session(
-      ..session,
+      ..base_session,
       debate_turns: debate_turns,
       vote_intents: vote_intents,
       next_turn_index: next_turn_index,
@@ -166,6 +175,34 @@ pub fn apply_debate_decision(
   case procedure {
     debate.ProposeAmendment -> register_amendment(updated, senator, speech)
     _ -> updated
+  }
+}
+
+fn guard_empty_speech(
+  decision: debate.DebateDecision,
+  senator: senators.Senator,
+) -> #(debate.DebateDecision, Option(String)) {
+  let debate.SpeakDecision(
+    will_speak,
+    speech,
+    vote_intent,
+    purpose,
+    procedure,
+  ) = decision
+
+  let trimmed = string.trim(speech)
+
+  case will_speak && trimmed == "" {
+    False -> #(decision, None)
+    True -> {
+      let fallback =
+        "Apologies — my prepared remarks did not transmit correctly. I'll rejoin shortly with a full statement after I verify the feed."
+
+      #(
+        debate.SpeakDecision(True, fallback, vote_intent, purpose, procedure),
+        Some("Recovered placeholder speech for " <> senator.name),
+      )
+    }
   }
 }
 

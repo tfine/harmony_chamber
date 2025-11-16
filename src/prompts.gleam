@@ -94,6 +94,7 @@ pub fn senator_debate_prompt(
       "- All votes are simple majorities. Amendments are voted on before the final bill and replace the bill text if adopted.",
       "- Use `procedure` = \"call_vote\" when debate has surfaced the necessary considerations and you want to move to a vote.",
       "- Reference specific prior arguments or messages when speaking; avoid generic filler.",
+      "- If you've spoken before, acknowledge how your stance has evolved or respond directly to prior remarks before adding something new.",
     ],
     "\n",
   )
@@ -122,6 +123,49 @@ fn trim_speech(text: String) -> String {
   case string.length(cleaned) > 220 {
     True -> string.slice(cleaned, 0, 217) <> "..."
     False -> cleaned
+  }
+}
+
+pub fn speaker_rotation_prompt(
+  roster: List(senators.Senator),
+) -> String {
+  let roster_lines =
+    roster
+    |> list.map(fn(senator) {
+      "- id: "
+        <> senator.id
+        <> "\n  name: "
+        <> senator.name
+        <> " ("
+        <> senator.state
+        <> ")\n  focus: "
+        <> biography_excerpt(senator.biography)
+    })
+    |> string.join("\n")
+
+  string.join(
+    [
+      "You are scheduling the opening speaking order for a high-stakes Senate debate.",
+      "Consider regional diversity, committee expertise, and contrasting perspectives to keep the debate lively.",
+      "Return a JSON array of senator `id` strings ordered from first speaker to last. Include every id exactly once.",
+      "",
+      roster_lines,
+    ],
+    "\n",
+  )
+}
+
+fn biography_excerpt(text: String) -> String {
+  let trimmed = string.trim(text)
+  let paragraphs = string.split(trimmed, "\n\n")
+  let base = case paragraphs {
+    [] -> trimmed
+    [first, ..] -> first
+  }
+
+  case string.length(base) > 220 {
+    True -> string.slice(base, 0, 217) <> "..."
+    False -> base
   }
 }
 

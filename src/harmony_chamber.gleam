@@ -11,16 +11,15 @@ import mist
 import senators
 import session
 import session_manager
-import session_runner
 import session_store
+import speaker_rotation
+import theme
 import wisp
 import wisp/wisp_mist
 
 fn handle_request(
   manager: session_manager.Manager,
   autop: autopilot.Autopilot,
-  steps_per_request: Int,
-  snapshot_path: String,
   roster: List(senators.Senator),
   request: wisp.Request,
 ) -> wisp.Response {
@@ -29,8 +28,6 @@ fn handle_request(
       handle_home(
         manager,
         autop,
-        steps_per_request,
-        snapshot_path,
         roster,
         request,
       )
@@ -44,22 +41,18 @@ fn handle_request(
 fn handle_home(
   manager: session_manager.Manager,
   autop: autopilot.Autopilot,
-  steps_per_request: Int,
-  snapshot_path: String,
   roster: List(senators.Senator),
   request: wisp.Request,
 ) -> wisp.Response {
   wisp.require_method(request, http.Get, fn() {
+    let current_theme = theme.from_request(request)
     let current_session = session_manager.current(manager)
-    let advanced =
-      session_runner.run_steps(current_session, roster, steps_per_request)
-    session_manager.replace(manager, advanced)
-    persist_snapshot(snapshot_path, advanced)
     let page =
       html_renderer.render_session_page(
-        advanced,
+        current_session,
         roster,
         autopilot_status(autop),
+        current_theme,
       )
     wisp.html_response(page, 200)
   })
@@ -70,12 +63,14 @@ fn handle_docket(
   request: wisp.Request,
 ) -> wisp.Response {
   wisp.require_method(request, http.Get, fn() {
+    let current_theme = theme.from_request(request)
     let snapshot = session_manager.current(manager)
     let page =
       html_renderer.render_docket_page(
         snapshot.bill,
         snapshot.completed_bills,
         snapshot.upcoming_bills,
+        current_theme,
       )
     wisp.html_response(page, 200)
   })
@@ -86,8 +81,13 @@ fn handle_history(
   request: wisp.Request,
 ) -> wisp.Response {
   wisp.require_method(request, http.Get, fn() {
+    let current_theme = theme.from_request(request)
     let snapshot = session_manager.current(manager)
-    let page = html_renderer.render_history_page(snapshot.completed_bills)
+    let page =
+      html_renderer.render_history_page(
+        snapshot.completed_bills,
+        current_theme,
+      )
     wisp.html_response(page, 200)
   })
 }
@@ -97,13 +97,15 @@ fn handle_autopilot_action(
   autop: autopilot.Autopilot,
   request: wisp.Request,
 ) -> wisp.Response {
+  let current_theme = theme.from_request(request)
   wisp.require_method(request, http.Post, fn() {
     case action {
       "pause" -> autopilot.pause(autop)
       "resume" -> autopilot.resume(autop)
       _ -> Nil
     }
-    wisp.redirect("/")
+    let target = "/" <> theme.query_suffix(current_theme)
+    wisp.redirect(target)
   })
 }
 
@@ -111,25 +113,18 @@ pub fn main() {
   wisp.configure_logger()
 
   let roster = senators.all_senators()
+  let speaking_roster = speaker_rotation.prioritized_roster(roster)
   let snapshot_path = snapshot_file_path()
   let docket = bill_docket()
   let initial_session = load_or_init_session(snapshot_path, docket)
   let manager = session_manager.start(initial_session)
   let secret_key_base = "dev_secret_key_change_me"
-  let steps_per_request = request_step_setting()
 
   let autop_handle =
-    autopilot.start(autopilot_settings(snapshot_path), manager, roster)
+    autopilot.start(autopilot_settings(snapshot_path), manager, speaking_roster)
 
   let router = fn(request) {
-    handle_request(
-      manager,
-      autop_handle,
-      steps_per_request,
-      snapshot_path,
-      roster,
-      request,
-    )
+    handle_request(manager, autop_handle, roster, request)
   }
 
   let assert Ok(_) =
@@ -189,18 +184,6 @@ fn bill_docket() -> List(session.Bill) {
       summary: "Coordinates interstate transmission permitting, workforce training, and resilience funding to accelerate deployment of clean power lines and microgrids.",
     ),
   ]
-}
-
-fn persist_snapshot(path: String, sess: session.Session) {
-  case session_store.persist(sess, path) {
-    Ok(_) -> Nil
-    Error(message) ->
-      io.println("Snapshot write failed (" <> path <> "): " <> message)
-  }
-}
-
-fn request_step_setting() -> Int {
-  env_int("HARMONY_STEPS_PER_REQUEST", 3)
 }
 
 fn autopilot_status(autop: autopilot.Autopilot) -> Bool {
