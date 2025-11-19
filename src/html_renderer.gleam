@@ -4,6 +4,7 @@ import gleam/list
 import gleam/json
 import gleam/option.{type Option, None, Some, unwrap}
 import gleam/string
+import office
 import senators
 import session
 import theme
@@ -221,9 +222,150 @@ pub fn render_history_page(
            </div>
            <div class=\"docket-list\">" <> body <> "</div>
          </section>
-     </div>
-    </body>
-  </html>"
+       </div>
+     </body>
+   </html>"
+}
+
+pub fn render_senators_index_page(
+  senators_list: List(senators.Senator),
+  current_session: session.Session,
+  current_theme: theme.Theme,
+) -> String {
+  let cards =
+    senators_list
+    |> list.map(fn(senator) { render_senator_card(senator, current_session) })
+    |> string.join("")
+
+  let nav_links = render_nav_links(current_theme)
+  let theme_switcher = render_theme_switcher(current_theme, "/senators")
+  let body_class = theme.body_class(current_theme)
+
+  "<!doctype html>
+   <html lang=\"en\">
+     <head>
+       <meta charset=\"utf-8\" />
+       <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+       <title>Senators | Harmony Chamber</title>
+       <style>"
+    <> stylesheet()
+    <> "</style>
+     </head>
+     <body class=\""
+    <> body_class
+    <> "\">
+       <div class=\"page\">
+         <header class=\"hero\">
+           <div>
+             <p class=\"eyebrow\">Harmony Chamber</p>
+             <h1>Senators</h1>
+             <nav class=\"nav-links\">
+               "
+    <> nav_links
+    <> "
+             </nav>
+             <p class=\"hero-summary\">
+               Explore each senator’s priorities, most recent remarks, and constituent notes.
+             </p>
+             "
+    <> theme_switcher
+    <> "
+           </div>
+         </header>
+         <main class=\"grid\">
+           "
+    <> cards
+    <> "
+         </main>
+       </div>
+     </body>
+   </html>"
+}
+
+pub fn render_senator_profile_page(
+  senator: senators.Senator,
+  sess: session.Session,
+  notes: List(office.Note),
+  current_theme: theme.Theme,
+) -> String {
+  let body_class = theme.body_class(current_theme)
+  let nav_links = render_nav_links(current_theme)
+  let theme_switcher = render_theme_switcher(current_theme, "/senators/" <> senator.id)
+  let recent = recent_statement(senator, sess)
+  let note_list = render_notes(notes)
+
+  "<!doctype html>
+   <html lang=\"en\">
+     <head>
+       <meta charset=\"utf-8\" />
+       <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+       <title>"
+    <> senator.name
+    <> " | Harmony Chamber</title>
+       <style>"
+    <> stylesheet()
+    <> "</style>
+     </head>
+     <body class=\""
+    <> body_class
+    <> "\">
+       <div class=\"page\">
+         <header class=\"hero\">
+           <div>
+             <p class=\"eyebrow\">Senator Profile</p>
+             <h1>"
+    <> senator.name
+    <> " ("
+    <> senator.state
+    <> ")</h1>
+             <nav class=\"nav-links\">"
+    <> nav_links
+    <> "</nav>
+             <p class=\"hero-summary\">"
+    <> senator.biography
+    <> "</p>
+             "
+    <> theme_switcher
+    <> "
+           </div>
+         </header>
+         <main class=\"grid\">
+           <section class=\"panel\">
+             <h2>Current Bill</h2>
+             <p class=\"eyebrow\">"
+    <> sess.bill.id
+    <> "</p>
+             <h3>"
+    <> sess.bill.title
+    <> "</h3>
+             <p>"
+    <> sess.bill.summary
+    <> "</p>
+           </section>
+           <section class=\"panel\">
+             <h2>Latest Floor Statement</h2>
+             <p>"
+    <> recent
+    <> "</p>
+           </section>
+           <section class=\"panel\">
+             <h2>Constituent Notes</h2>
+             "
+    <> note_list
+    <> "
+             <form method=\"post\" action=\"/senators/"
+    <> senator.id
+    <> "/notes\">
+               <label>Name<br /><input type=\"text\" name=\"name\" placeholder=\"Your name\" /></label><br />
+               <label>Contact<br /><input type=\"text\" name=\"contact\" placeholder=\"Email or phone\" /></label><br />
+               <label>Message<br /><textarea name=\"body\" rows=\"4\" placeholder=\"Share your priority or feedback\"></textarea></label><br />
+               <button type=\"submit\">Send to office</button>
+             </form>
+           </section>
+         </main>
+       </div>
+     </body>
+   </html>"
 }
 
 fn render_hero(
@@ -1443,6 +1585,68 @@ fn format_result_summary(result: session.VoteResult) -> String {
     <> abstain_suffix
 }
 
+fn render_senator_card(
+  senator: senators.Senator,
+  sess: session.Session,
+) -> String {
+  let statement = escape_html(recent_statement(senator, sess))
+
+  "<section class=\"panel senator-card\">
+     <p class=\"eyebrow\">"
+    <> escape_html(senator.state)
+    <> "</p>
+     <h3><a href=\"/senators/"
+    <> escape_html(senator.id)
+    <> "\">"
+    <> escape_html(senator.name)
+    <> "</a></h3>
+     <p>"
+    <> statement
+    <> "</p>
+   </section>"
+}
+
+fn recent_statement(senator: senators.Senator, sess: session.Session) -> String {
+  let matches =
+    sess.debate_turns
+    |> list.filter(fn(turn) { turn.senator.id == senator.id })
+    |> list.reverse
+
+  case matches {
+    [] -> "No recorded statements yet."
+    [turn, ..] -> trim_text(turn.speech)
+  }
+}
+
+fn render_notes(notes: List(office.Note)) -> String {
+  case notes {
+    [] ->
+      "<p>No constituent notes yet. Be the first to share a priority.</p>"
+    _ ->
+      notes
+      |> list.map(fn(note) {
+        let office.Note(name:, contact:, body:) = note
+        let author = case string.trim(name) {
+          "" -> "Anonymous"
+          other -> escape_html(other)
+        }
+        let contact_text = case string.trim(contact) {
+          "" -> ""
+          other -> " — " <> escape_html(other)
+        }
+
+        "<article class=\"note\"><p><strong>"
+          <> author
+          <> "</strong>"
+          <> contact_text
+          <> "</p><p>"
+          <> escape_html(trim_text(body))
+          <> "</p></article>"
+      })
+      |> string.join("")
+  }
+}
+
 fn biography_snippet(bio: String) -> String {
   let paragraphs = string.split(bio, "\n\n")
   let snippet = case paragraphs {
@@ -1453,6 +1657,14 @@ fn biography_snippet(bio: String) -> String {
   case string.length(snippet) > 280 {
     True -> string.slice(snippet, 0, 277) <> "..."
     False -> snippet
+  }
+}
+
+fn trim_text(text: String) -> String {
+  let cleaned = string.trim(text)
+  case string.length(cleaned) > 220 {
+    True -> string.slice(cleaned, 0, 217) <> "..."
+    False -> cleaned
   }
 }
 
@@ -1724,6 +1936,11 @@ fn stylesheet() -> String {
     box-shadow: 0 12px 30px var(--shadow);
     position: relative;
     overflow: hidden;
+  }
+
+  .bill-panel,
+  .amendment-panel {
+    grid-column: 1 / -1;
   }
 
   .vote-bars {
@@ -2051,6 +2268,10 @@ fn stylesheet() -> String {
     flex-direction: column;
     gap: 1rem;
     margin-top: 1rem;
+  }
+
+  .amendment-panel .empty-transcript {
+    margin: 0;
   }
 
   .amendment-card h3 {

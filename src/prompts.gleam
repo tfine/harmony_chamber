@@ -1,7 +1,9 @@
 import debate
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/string
+import memory
 import messages
 import senators
 import session
@@ -9,6 +11,7 @@ import session
 pub fn senator_debate_prompt(
   senator: senators.Senator,
   sess: session.Session,
+  recall: List(memory.MemoryHit),
 ) -> String {
   let bill = sess.bill
   let history = sess.debate_turns
@@ -36,6 +39,7 @@ pub fn senator_debate_prompt(
     }
 
   let amendment_section = format_amendment_section(sess.amendments)
+  let memory_section = format_memory_section(recall)
   let procedure_context = format_procedure_context(sess.status)
   let vote_section = format_vote_section(sess)
 
@@ -64,6 +68,9 @@ pub fn senator_debate_prompt(
       "",
       "=== AMENDMENTS ===",
       amendment_section,
+      "",
+      "=== PRIOR MEMORY ===",
+      memory_section,
       "",
       "=== VOTE STATUS ===",
       vote_section,
@@ -98,6 +105,10 @@ pub fn senator_debate_prompt(
     ],
     "\n",
   )
+}
+
+pub fn memory_query_text(sess: session.Session) -> String {
+  sess.bill.title <> " — " <> sess.bill.summary
 }
 
 fn format_history_entry(turn: debate.DebateTurn) -> String {
@@ -194,6 +205,28 @@ fn format_amendment_status(amendment: session.Amendment) -> String {
     session.Pending -> "Pending"
     session.Adopted -> "Adopted"
     session.Rejected -> "Rejected"
+  }
+}
+
+fn format_memory_section(recall: List(memory.MemoryHit)) -> String {
+  case recall {
+    [] ->
+      "No retrieved long-term memories for this bill and senator. You may propose new arguments or reference transcripts directly."
+    _ ->
+      recall
+      |> list.take(6)
+      |> list.map(fn(hit) {
+        "- Turn "
+          <> int.to_string(hit.turn_index)
+          <> " on bill "
+          <> hit.bill_id
+          <> " — "
+          <> hit.summary
+          <> " (relevance "
+          <> float.to_string(hit.score)
+          <> ")"
+      })
+      |> string.join("\n")
   }
 }
 

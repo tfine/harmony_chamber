@@ -6,24 +6,26 @@ import gleam/order
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import llm_client
+import memory
 import senators
 import session
 
 pub fn step_session(
   current_session: session.Session,
   senator_cycle: List(senators.Senator),
+  mem: memory.Memory,
 ) -> Result(session.Session, llm_client.LlmError) {
   case current_session.status {
     session.Closed -> Ok(current_session)
-    session.Voting(_) -> step_vote_round(current_session, senator_cycle)
-    session.InDebate ->
-      step_debate_round(current_session, senator_cycle)
+    session.Voting(_) -> step_vote_round(current_session, senator_cycle, mem)
+    session.InDebate -> step_debate_round(current_session, senator_cycle, mem)
   }
 }
 
 fn step_debate_round(
   current_session: session.Session,
   senator_cycle: List(senators.Senator),
+  mem: memory.Memory,
 ) -> Result(session.Session, llm_client.LlmError) {
   case current_session.llm_calls_used >= current_session.llm_calls_limit {
     True ->
@@ -41,6 +43,7 @@ fn step_debate_round(
           use decision <- result.try(agent_bridge.request_debate_decision(
             senator,
             current_session,
+            mem,
           ))
 
           let updated =
@@ -49,6 +52,26 @@ fn step_debate_round(
             |> maybe_move_to_voting(decision, ordered)
             |> session.advance_speaker(total)
             |> session.increment_llm_calls()
+
+          let _ =
+            case decision {
+              debate.SpeakDecision(
+                will_speak: True,
+                speech: speech,
+                vote_intent: intent,
+                purpose: _,
+                procedure: _,
+              ) ->
+                memory.add_debate_turn(
+                  mem,
+                  senator,
+                  updated.bill,
+                  updated.next_turn_index - 1,
+                  speech,
+                  intent,
+                )
+              _ -> Ok(Nil)
+            }
 
           Ok(updated)
         }
@@ -85,6 +108,7 @@ fn maybe_move_to_voting(
 fn step_vote_round(
   current_session: session.Session,
   senator_cycle: List(senators.Senator),
+  mem: memory.Memory,
 ) -> Result(session.Session, llm_client.LlmError) {
   case current_session.llm_calls_used >= current_session.llm_calls_limit {
     True -> Ok(current_session)
@@ -98,6 +122,7 @@ fn step_vote_round(
               use decision <- result.try(agent_bridge.request_debate_decision(
                 senator,
                 current_session,
+                mem,
               ))
 
               let updated =
@@ -105,6 +130,26 @@ fn step_vote_round(
                 |> session.apply_debate_decision(senator, decision)
                 |> session.drop_vote_target()
                 |> session.increment_llm_calls()
+
+              let _ =
+                case decision {
+                  debate.SpeakDecision(
+                    will_speak: True,
+                    speech: speech,
+                    vote_intent: intent,
+                    purpose: _,
+                    procedure: _,
+                  ) ->
+                    memory.add_debate_turn(
+                      mem,
+                      senator,
+                      updated.bill,
+                      updated.next_turn_index - 1,
+                      speech,
+                      intent,
+                    )
+                  _ -> Ok(Nil)
+                }
 
               Ok(updated)
             }

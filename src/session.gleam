@@ -81,6 +81,7 @@ const call_vote_threshold = 2
 const automatic_vote_turn_limit = 16
 const default_inbox_limit = 6
 const vote_reminder_rounds = 6
+const default_llm_calls_limit = 200
 
 pub fn initial_session(bill: Bill) -> Session {
   Session(
@@ -93,7 +94,7 @@ pub fn initial_session(bill: Bill) -> Session {
     next_speaker_index: 0,
     last_error: None,
     llm_calls_used: 0,
-    llm_calls_limit: 200,
+    llm_calls_limit: default_llm_calls_limit,
     messages: [],
     amendments: [],
     next_amendment_id: 1,
@@ -244,6 +245,14 @@ pub fn record_error(session: Session, message: String) -> Session {
 
 pub fn increment_llm_calls(session: Session) -> Session {
   Session(..session, llm_calls_used: session.llm_calls_used + 1)
+}
+
+pub fn set_llm_calls_limit(session: Session, limit: Int) -> Session {
+  Session(..session, llm_calls_limit: limit)
+}
+
+pub fn default_llm_limit() -> Int {
+  default_llm_calls_limit
 }
 
 pub fn add_message(session: Session, message: messages.Message) -> Session {

@@ -1,5 +1,6 @@
 import gleam/erlang/process
 import gleam/io
+import memory
 import session
 import session_manager
 import session_runner
@@ -33,6 +34,7 @@ type State {
     tick_ms: Int,
     steps_per_tick: Int,
     snapshot_path: String,
+    memory: memory.Memory,
     running: Bool,
   )
 }
@@ -41,6 +43,7 @@ pub fn start(
   settings: Settings,
   manager: session_manager.Manager,
   roster: List(senators.Senator),
+  mem: memory.Memory,
 ) -> Autopilot {
   let handshake = process.new_subject()
   let state = State(
@@ -49,6 +52,7 @@ pub fn start(
     tick_ms: settings.tick_ms,
     steps_per_tick: settings.steps_per_tick,
     snapshot_path: settings.snapshot_path,
+    memory: mem,
     running: settings.enabled,
   )
 
@@ -117,7 +121,12 @@ fn maybe_tick(state: State) -> State {
     True -> {
       let current = session_manager.current(state.manager)
       let advanced =
-        session_runner.run_steps(current, state.roster, state.steps_per_tick)
+        session_runner.run_steps(
+          current,
+          state.roster,
+          state.steps_per_tick,
+          state.memory,
+        )
 
       session_manager.replace(state.manager, advanced)
       persist_snapshot(state.snapshot_path, advanced)

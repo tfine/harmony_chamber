@@ -8,6 +8,9 @@ ai governance in new harmony
 REMEMBER to set:
 
 HARMONY_MAX_LLM_CALLS
+PINECONE_API_KEY
+PINECONE_ENVIRONMENT
+PINECONE_INDEX
 
 ```sh
 gleam add harmony_chamber@1
@@ -28,3 +31,5 @@ Further documentation can be found at <https://hexdocs.pm/harmony_chamber>.
 gleam run   # Run the project
 gleam test  # Run the tests
 ```
+
+Senator public pages are available at `/senators` once the server is running. Constituents can leave notes via `/senators/{id}/notes`.

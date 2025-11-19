@@ -32,8 +32,54 @@ type RawDecision {
 }
 
 const default_model = "gpt-4.1-mini"
-
 const default_api_base = "https://api.openai.com/v1"
+const default_embedding_model = "text-embedding-3-small"
+
+pub fn embed(text: String) -> Result(List(Float), LlmError) {
+  use config <- result.try(load_config())
+
+  let model = case envoy.get("HARMONY_EMBEDDING_MODEL") {
+    Ok(value) -> value
+    Error(_) -> default_embedding_model
+  }
+
+  let payload = embedding_payload(text, model)
+  let url = normalise_base(config.api_base) <> "/embeddings"
+
+  let prepared_request =
+    request.to(url)
+    |> result.map_error(fn(_) { HttpFailure("Invalid API base URL: " <> url) })
+
+  use base_request <- result.try(prepared_request)
+
+  let req =
+    base_request
+    |> request.set_method(http.Post)
+    |> request.set_header("authorization", "Bearer " <> config.api_key)
+    |> request.set_header("content-type", "application/json")
+    |> request.map(fn(_) { bit_array.from_string(payload) })
+
+  let sent =
+    httpc.send_bits(req)
+    |> result.map_error(fn(error) { HttpFailure(http_error_to_string(error)) })
+
+  use resp <- result.try(sent)
+
+  let body_bits =
+    resp.body
+    |> bit_array.to_string
+    |> result.map_error(fn(_) { DecodeFailure("Response body is not UTF-8") })
+
+  use body <- result.try(body_bits)
+
+  case resp.status >= 200 && resp.status < 300 {
+    True -> decode_embedding(body)
+    False ->
+      Error(HttpFailure(
+        "OpenAI status " <> int.to_string(resp.status) <> ": " <> body,
+      ))
+  }
+}
 
 pub fn call_llm(prompt: String) -> Result(String, LlmError) {
   use config <- result.try(load_config())
@@ -153,9 +199,22 @@ fn build_payload(prompt: String, model: String) -> String {
   |> json.to_string
 }
 
+fn embedding_payload(text: String, model: String) -> String {
+  json.object([
+    #("model", json.string(model)),
+    #("input", json.string(text)),
+  ])
+  |> json.to_string
+}
+
 fn decode_completion(body: String) -> Result(String, LlmError) {
   json.parse(body, completion_decoder())
   |> result.map(fn(content) { string.trim(content) })
+  |> result.map_error(fn(error) { DecodeFailure(format_decode_error(error)) })
+}
+
+fn decode_embedding(body: String) -> Result(List(Float), LlmError) {
+  json.parse(body, embedding_decoder())
   |> result.map_error(fn(error) { DecodeFailure(format_decode_error(error)) })
 }
 
@@ -190,6 +249,19 @@ fn decision_decoder() -> decode.Decoder(RawDecision) {
     purpose: purpose,
     procedure: procedure,
   ))
+}
+
+fn embedding_decoder() -> decode.Decoder(List(Float)) {
+  use data <- decode.field("data", decode.list(embedding_item_decoder()))
+  case data {
+    [first, ..] -> decode.success(first)
+    [] -> decode.failure([], "NonEmptyEmbeddings")
+  }
+}
+
+fn embedding_item_decoder() -> decode.Decoder(List(Float)) {
+  use embedding <- decode.field("embedding", decode.list(decode.float))
+  decode.success(embedding)
 }
 
 fn format_decode_error(error: json.DecodeError) -> String {

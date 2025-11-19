@@ -3,6 +3,7 @@ import debate
 import gleam/erlang/process
 import gleam/list
 import llm_client
+import memory
 import messages
 import senators
 import session
@@ -79,7 +80,12 @@ fn loop(
     RequestDecision(sess, reply) -> {
       // Delegate to the bridge for now; this isolates LLM wiring from the
       // orchestrator so we can later swap in an Agent SDK call.
-      let decision = agent_bridge.request_debate_decision(state.senator, sess)
+      let decision =
+        agent_bridge.request_debate_decision(
+          state.senator,
+          sess,
+          memory.init(),
+        )
       process.send(reply, decision)
       loop(mailbox, state)
     }

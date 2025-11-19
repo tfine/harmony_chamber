@@ -5,10 +5,13 @@ import gleam/http
 import gleam/http/request as http_request
 import gleam/int
 import gleam/io
-import gleam/option.{None, Some}
+import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import html_renderer
 import mist
+import memory
+import office
 import senators
 import session
 import session_manager
@@ -22,6 +25,7 @@ fn handle_request(
   manager: session_manager.Manager,
   autop: autopilot.Autopilot,
   roster: List(senators.Senator),
+  office: office.Office,
   request: wisp.Request,
 ) -> wisp.Response {
   case wisp.path_segments(request) {
@@ -32,6 +36,11 @@ fn handle_request(
         roster,
         request,
       )
+    ["senators"] -> handle_senators_index(manager, office, roster, request)
+    ["senators", id] ->
+      handle_senator_profile(manager, office, roster, id, request)
+    ["senators", id, "notes"] ->
+      handle_senator_note(manager, office, roster, id, request)
     ["docket"] -> handle_docket(manager, request)
     ["history"] -> handle_history(manager, request)
     ["autopilot", action] -> handle_autopilot_action(action, autop, request)
@@ -73,6 +82,78 @@ fn handle_home(
 
         wisp.html_response(page, 200)
       }
+    }
+  })
+}
+
+fn handle_senators_index(
+  manager: session_manager.Manager,
+  _office: office.Office,
+  roster: List(senators.Senator),
+  request: wisp.Request,
+) -> wisp.Response {
+  wisp.require_method(request, http.Get, fn() {
+    let current_theme = theme.from_request(request)
+    let snapshot = session_manager.current(manager)
+    let page =
+      html_renderer.render_senators_index_page(
+        roster,
+        snapshot,
+        current_theme,
+      )
+    wisp.html_response(page, 200)
+  })
+}
+
+fn handle_senator_profile(
+  manager: session_manager.Manager,
+  office: office.Office,
+  roster: List(senators.Senator),
+  id: String,
+  request: wisp.Request,
+) -> wisp.Response {
+  wisp.require_method(request, http.Get, fn() {
+    let current_theme = theme.from_request(request)
+    let snapshot = session_manager.current(manager)
+
+    case find_senator(roster, id) {
+      None -> wisp.not_found()
+      Some(senator) -> {
+        let notes = office.notes_for(office, id)
+        let page =
+          html_renderer.render_senator_profile_page(
+            senator,
+            snapshot,
+            notes,
+            current_theme,
+          )
+        wisp.html_response(page, 200)
+      }
+    }
+  })
+}
+
+fn handle_senator_note(
+  _manager: session_manager.Manager,
+  office: office.Office,
+  roster: List(senators.Senator),
+  id: String,
+  request: wisp.Request,
+) -> wisp.Response {
+  let current_theme = theme.from_request(request)
+  wisp.require_method(request, http.Post, fn() {
+    case find_senator(roster, id) {
+      None -> wisp.not_found()
+      Some(_senator) ->
+        wisp.require_form(request, fn(form) {
+          let name = field_value(form.values, "name")
+          let contact = field_value(form.values, "contact")
+          let body = field_value(form.values, "body")
+          let note = office.Note(name:, contact:, body:)
+          office.add_note(office, id, note)
+          let target = "/senators/" <> id <> theme.query_suffix(current_theme)
+          wisp.redirect(target)
+        })
     }
   })
 }
@@ -135,16 +216,22 @@ pub fn main() {
   let speaking_roster = speaker_rotation.prioritized_roster(roster)
   let snapshot_path = snapshot_file_path()
   let docket = bill_docket()
+  let mem = memory.init()
+  let office_handle = office.start()
   let initial_session = load_or_init_session(snapshot_path, docket)
   let manager = session_manager.start(initial_session)
   let secret_key_base = "dev_secret_key_change_me"
 
   let autop_handle =
-    autopilot.start(autopilot_settings(snapshot_path), manager, speaking_roster)
+    autopilot.start(
+      autopilot_settings(snapshot_path),
+      manager,
+      speaking_roster,
+      mem,
+    )
 
-  let router = fn(request) {
-    handle_request(manager, autop_handle, roster, request)
-  }
+  let router =
+    fn(request) { handle_request(manager, autop_handle, roster, office_handle, request) }
 
   let assert Ok(_) =
     router
@@ -161,16 +248,21 @@ fn load_or_init_session(
   snapshot_path: String,
   docket: List(session.Bill),
 ) -> session.Session {
-  case session_store.load(snapshot_path) {
-    Ok(Some(sess)) -> session.ensure_active(sess)
-    Ok(None) -> start_from_docket(docket)
-    Error(message) -> {
-      io.println(
-        "Failed to load session snapshot (" <> snapshot_path <> "): " <> message,
-      )
-      start_from_docket(docket)
+  let llm_limit = env_int("HARMONY_MAX_LLM_CALLS", session.default_llm_limit())
+
+  let base_session =
+    case session_store.load(snapshot_path) {
+      Ok(Some(sess)) -> session.ensure_active(sess)
+      Ok(None) -> start_from_docket(docket)
+      Error(message) -> {
+        io.println(
+          "Failed to load session snapshot (" <> snapshot_path <> "): " <> message,
+        )
+        start_from_docket(docket)
+      }
     }
-  }
+
+  session.set_llm_calls_limit(base_session, llm_limit)
 }
 
 fn start_from_docket(docket: List(session.Bill)) -> session.Session {
@@ -210,9 +302,17 @@ fn autopilot_status(autop: autopilot.Autopilot) -> Bool {
 }
 
 fn autopilot_settings(snapshot_path: String) -> autopilot.Settings {
-  let enabled = env_bool("HARMONY_AUTOPILOT_ENABLED", True)
+  let enabled_env = env_bool("HARMONY_AUTOPILOT_ENABLED", True)
   let tick_ms = env_int("HARMONY_AUTOPILOT_TICK_MS", 1666)
   let steps_per_tick = env_int("HARMONY_AUTOPILOT_STEPS", 3)
+  let enabled =
+    case envoy.get("OPENAI_API_KEY") {
+      Ok(_) -> enabled_env
+      Error(_) -> {
+        io.println("Autopilot disabled: missing OPENAI_API_KEY")
+        False
+      }
+    }
 
   autopilot.Settings(
     enabled: enabled,
@@ -245,6 +345,27 @@ fn env_int(name: String, default: Int) -> Int {
       }
     }
     Error(_) -> default
+  }
+}
+
+fn find_senator(
+  roster: List(senators.Senator),
+  id: String,
+) -> Option(senators.Senator) {
+  case roster {
+    [] -> None
+    [head, ..tail] ->
+      case head.id == id {
+        True -> Some(head)
+        False -> find_senator(tail, id)
+      }
+  }
+}
+
+fn field_value(fields: List(#(String, String)), key: String) -> String {
+  case list.key_find(fields, key) {
+    Ok(value) -> value
+    Error(_) -> ""
   }
 }
 
