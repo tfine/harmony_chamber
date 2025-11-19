@@ -46,6 +46,7 @@ pub type LiveFragments {
     amendment: String,
     roster: String,
     alert: String,
+    vote_active: Bool,
   )
 }
 
@@ -66,6 +67,8 @@ pub fn render_session_page_from_fragments(
 ) -> String {
   let body_class = theme.body_class(current_theme)
   let refresh_script = live_update_script()
+  let vote_block = fragments.vote
+  let debate_block = fragments.debate
 
   "<!doctype html>
    <html lang=\"en\">
@@ -81,8 +84,10 @@ pub fn render_session_page_from_fragments(
         " <> fragments.alert <> "
         <main class=\"grid\">
           " <> fragments.bill <> "
-          " <> fragments.vote <> "
-          " <> fragments.debate <> "
+          " <> case fragments.vote_active {
+            True -> vote_block <> debate_block
+            False -> debate_block <> vote_block
+          } <> "
           " <> fragments.amendment <> "
          </main>
          " <> fragments.roster <> "
@@ -117,6 +122,7 @@ pub fn live_fragments(
     amendment: amendment_section,
     roster: roster_section,
     alert: error_section,
+    vote_active: case sess.status { session.Voting(_) -> True _ -> False },
   )
 }
 
@@ -414,8 +420,6 @@ fn render_live_vote_panel(
   let drama_enabled = query_flag(query_params, "drama")
   let drama_toggle = render_drama_toggle(query_params, drama_enabled)
   let stats = render_vote_stats(tally, total_members, outstanding)
-  let spotlights =
-    render_vote_spotlights(sess, senators_list, drama_enabled, outstanding)
 
   "<section class=\"panel vote-panel\" id=\"vote-panel\">
      <div class=\"panel-header\">
@@ -430,8 +434,7 @@ fn render_live_vote_panel(
      </div>
      " <> bars <> "
      <p class=\"vote-summary\">" <> summary <> "</p>
-     " <> stats <> "
-     " <> spotlights <> "
+    " <> stats <> "
    </section>"
 }
 
@@ -580,158 +583,6 @@ fn vote_percent(part: Int, total: Int) -> Int {
         Error(Nil) -> 0
       }
     }
-  }
-}
-
-fn render_vote_spotlights(
-  sess: session.Session,
-  roster: List(senators.Senator),
-  drama_enabled: Bool,
-  outstanding: List(String),
-) -> String {
-  let lineup = prioritized_vote_lineup(sess, roster, outstanding)
-  let visible = list.take(lineup, 9)
-
-  let cards =
-    visible
-    |> enumerate_cards(1)
-    |> list.map(fn(entry) {
-      let #(position, senator) = entry
-      vote_spotlight_card(
-        sess,
-        senator,
-        position,
-        outstanding,
-        drama_enabled,
-      )
-    })
-    |> string.join("")
-
-  "<div class=\"vote-spotlights\">" <> cards <> "</div>"
-}
-
-fn prioritized_vote_lineup(
-  sess: session.Session,
-  roster: List(senators.Senator),
-  outstanding: List(String),
-) -> List(senators.Senator) {
-  let queue_order = senators_for_ids(sess.vote_queue, roster)
-  let waiting_order = senators_for_ids(outstanding, roster)
-  let everyone_else =
-    roster
-    |> list.filter(fn(senator) {
-      list.contains(sess.vote_queue, senator.id) == False
-        && list.contains(outstanding, senator.id) == False
-    })
-
-  merge_unique(queue_order, merge_unique(waiting_order, everyone_else))
-}
-
-fn merge_unique(
-  primary: List(senators.Senator),
-  secondary: List(senators.Senator),
-) -> List(senators.Senator) {
-  let primary_ids = list.map(primary, fn(s) { s.id })
-  let remainder =
-    secondary
-    |> list.filter(fn(s) { list.contains(primary_ids, s.id) == False })
-  list.append(primary, remainder)
-}
-
-fn senators_for_ids(
-  ids: List(String),
-  roster: List(senators.Senator),
-) -> List(senators.Senator) {
-  ids
-  |> list.fold([], fn(acc, id) {
-    case find_senator(roster, id) {
-      None -> acc
-      Some(senator) -> [senator, ..acc]
-    }
-  })
-  |> list.reverse
-}
-
-fn find_senator(
-  roster: List(senators.Senator),
-  id: String,
-) -> Option(senators.Senator) {
-  case roster {
-    [] -> None
-    [head, ..tail] ->
-      case head.id == id {
-        True -> Some(head)
-        False -> find_senator(tail, id)
-      }
-  }
-}
-
-fn enumerate_cards(
-  cards: List(senators.Senator),
-  index: Int,
-) -> List(#(Int, senators.Senator)) {
-  case cards {
-    [] -> []
-    [head, ..tail] -> [#(index, head), ..enumerate_cards(tail, index + 1)]
-  }
-}
-
-fn vote_spotlight_card(
-  sess: session.Session,
-  senator: senators.Senator,
-  position: Int,
-  outstanding: List(String),
-  drama_enabled: Bool,
-) -> String {
-  let intent = case session.vote_intent_for(sess, senator.id) {
-    Some(value) -> value
-    None -> debate.Undecided
-  }
-
-  let intent_label = debate.vote_intent_label(intent)
-  let intent_class = vote_intent_class(intent)
-  let is_waiting = list.contains(outstanding, senator.id)
-  let badge =
-    case is_waiting {
-      True -> "<span class=\"pill vote-pill\">Awaiting floor signal</span>"
-      False -> ""
-    }
-
-  let drama_class = case drama_enabled && position == 1 {
-    True -> " is-spotlight"
-    False -> ""
-  }
-
-  "<article class=\"card vote-card"
-    <> intent_class
-    <> drama_class
-    <> "\">
-       <div class=\"vote-card-header\">
-         <div>
-           <h3>" <> escape_html(senator.name) <> "</h3>
-           <p class=\"vote-card-sub\">"
-    <> escape_html(senator.state)
-    <> " &middot; "
-    <> escape_html(intent_label)
-    <> "</p>
-         </div>
-         <span class=\"pill intent-pill " <> intent_class <> "\">" <> escape_html(
-    intent_label,
-  ) <> "</span>
-       </div>
-       " <> badge <> "
-       <p class=\"vote-card-bio\">" <> escape_html(
-    biography_snippet(senator.biography),
-  ) <> "</p>
-     </article>"
-}
-
-fn vote_intent_class(intent: debate.VoteIntent) -> String {
-  case intent {
-    debate.Yea -> " is-yea"
-    debate.Nay -> " is-nay"
-    debate.Abstain -> " is-abstain"
-    debate.Undecided -> " is-undecided"
   }
 }
 
@@ -1587,7 +1438,19 @@ fn render_senator_card(
   senator: senators.Senator,
   sess: session.Session,
 ) -> String {
-  let statement = escape_html(recent_statement(senator, sess))
+  let intent =
+    case session.vote_intent_for(sess, senator.id) {
+      Some(value) -> value
+      None -> debate.Undecided
+    }
+  let justification =
+    case latest_turn_for(senator.id, sess.debate_turns) {
+      None -> ""
+      Some(turn) ->
+        "<p class=\"senator-meta\"><strong>Latest speech:</strong> "
+          <> escape_html(trim_text(turn.speech))
+          <> "</p>"
+    }
 
   "<section class=\"panel senator-card\">
      <p class=\"eyebrow\">"
@@ -1598,10 +1461,11 @@ fn render_senator_card(
     <> "\">"
     <> escape_html(senator.name)
     <> "</a></h3>
-     <p>"
-    <> statement
-    <> "</p>
-   </section>"
+     <p class=\"senator-meta\">Intent: " <> escape_html(debate.vote_intent_label(intent)) <> "</p>
+     "
+    <> justification
+    <> "
+  </section>"
 }
 
 fn recent_statement(senator: senators.Senator, sess: session.Session) -> String {
@@ -1613,6 +1477,24 @@ fn recent_statement(senator: senators.Senator, sess: session.Session) -> String 
   case matches {
     [] -> "No recorded statements yet."
     [turn, ..] -> trim_text(turn.speech)
+  }
+}
+
+fn latest_turn_for(
+  senator_id: String,
+  turns: List(debate.DebateTurn),
+) -> Option(debate.DebateTurn) {
+  turns
+  |> list.filter(fn(turn) { turn.senator.id == senator_id })
+  |> list.reverse
+  |> list.first
+  |> result_to_option
+}
+
+fn result_to_option(a: Result(a, b)) -> Option(a) {
+  case a {
+    Ok(value) -> Some(value)
+    Error(_) -> None
   }
 }
 
