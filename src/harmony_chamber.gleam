@@ -2,6 +2,7 @@ import autopilot
 import envoy
 import gleam/erlang/process
 import gleam/http
+import gleam/http/request as http_request
 import gleam/int
 import gleam/io
 import gleam/option.{None, Some}
@@ -45,16 +46,34 @@ fn handle_home(
   request: wisp.Request,
 ) -> wisp.Response {
   wisp.require_method(request, http.Get, fn() {
-    let current_theme = theme.from_request(request)
+    let query_params = wisp.get_query(request)
+    let current_theme = theme.from_query_params(query_params)
     let current_session = session_manager.current(manager)
-    let page =
-      html_renderer.render_session_page(
+    let fragments =
+      html_renderer.live_fragments(
         current_session,
         roster,
         autopilot_status(autop),
         current_theme,
+        query_params,
       )
-    wisp.html_response(page, 200)
+
+    case live_refresh_requested(request) {
+      True ->
+        wisp.json_response(
+          html_renderer.render_live_payload(fragments),
+          200,
+        )
+      False -> {
+        let page =
+          html_renderer.render_session_page_from_fragments(
+            fragments,
+            current_theme,
+          )
+
+        wisp.html_response(page, 200)
+      }
+    }
   })
 }
 
@@ -192,7 +211,7 @@ fn autopilot_status(autop: autopilot.Autopilot) -> Bool {
 
 fn autopilot_settings(snapshot_path: String) -> autopilot.Settings {
   let enabled = env_bool("HARMONY_AUTOPILOT_ENABLED", True)
-  let tick_ms = env_int("HARMONY_AUTOPILOT_TICK_MS", 5000)
+  let tick_ms = env_int("HARMONY_AUTOPILOT_TICK_MS", 1666)
   let steps_per_tick = env_int("HARMONY_AUTOPILOT_STEPS", 3)
 
   autopilot.Settings(
@@ -226,5 +245,21 @@ fn env_int(name: String, default: Int) -> Int {
       }
     }
     Error(_) -> default
+  }
+}
+
+fn live_refresh_requested(request: wisp.Request) -> Bool {
+  let header_value =
+    case http_request.get_header(request, "x-harmony-refresh") {
+      Ok(value) -> Ok(value)
+      Error(_) -> http_request.get_header(request, "X-Harmony-Refresh")
+    }
+
+  case header_value {
+    Ok(value) -> {
+      let trimmed = string.lowercase(string.trim(value))
+      trimmed == "1" || trimmed == "true" || trimmed == "yes"
+    }
+    Error(_) -> False
   }
 }
