@@ -5,6 +5,7 @@ import gleam/http
 import gleam/http/request
 import gleam/httpc
 import gleam/int
+import gleam/io
 import gleam/json
 import gleam/list
 import gleam/result
@@ -37,10 +38,13 @@ pub type QueryMatch {
     score: Float,
     senator_id: String,
     bill_id: String,
+    bill_title: String,
     summary: String,
     content: String,
     kind: String,
     turn_index: Int,
+    vote_intent: String,
+    purpose: String,
   )
 }
 
@@ -74,13 +78,20 @@ pub fn connect() -> Result(Pinecone, Error) {
   case resp.status {
     status if status >= 200 && status < 300 ->
       case json.parse(body, using: project_id_decoder()) {
-        Ok(project_id) ->
+        Ok(project_id) -> {
+          log_info(
+            "Connected to Pinecone project="
+              <> project_id
+              <> " index="
+              <> index,
+          )
           Ok(Pinecone(
             api_key: api_key,
             environment: environment,
             project_id: project_id,
             index: index,
           ))
+        }
         Error(error) -> Error(DecodeFailure(format_decode_error(error)))
       }
 
@@ -118,10 +129,23 @@ pub fn upsert(index: Pinecone, vectors: List(UpsertVector)) -> Result(Nil, Error
       use req <- result.try(request)
       use resp <- result.try(send(req))
       case resp.status >= 200 && resp.status < 300 {
-        True -> Ok(Nil)
+        True -> {
+          log_info(
+            "Upserted "
+              <> int.to_string(list.length(vectors))
+              <> " vectors",
+          )
+          Ok(Nil)
+        }
         False -> {
           use body <- result.try(body_as_string(resp.body))
-          Error(HttpFailure("Pinecone upsert status " <> int.to_string(resp.status) <> ": " <> body))
+          let message =
+            "Pinecone upsert status "
+              <> int.to_string(resp.status)
+              <> ": "
+              <> body
+          log_error(message)
+          Error(HttpFailure(message))
         }
       }
     }
@@ -152,17 +176,28 @@ pub fn query(
   use body <- result.try(body_as_string(resp.body))
 
   case resp.status >= 200 && resp.status < 300 {
-    False ->
-      Error(HttpFailure(
+    False -> {
+      let message =
         "Pinecone query status "
           <> int.to_string(resp.status)
           <> ": "
-          <> body,
-      ))
+          <> body
+      log_error(message)
+      Error(HttpFailure(message))
+    }
 
     True ->
       case json.parse(body, using: match_list_decoder()) {
-        Ok(matches) -> Ok(matches)
+        Ok(matches) -> {
+          log_info(
+            "Query returned "
+              <> int.to_string(list.length(matches))
+              <> " matches (top_k="
+              <> int.to_string(top_k)
+              <> ")",
+          )
+          Ok(matches)
+        }
         Error(error) -> Error(DecodeFailure(format_decode_error(error)))
       }
   }
@@ -178,17 +213,22 @@ pub fn describe_index_stats(index: Pinecone) -> Result(Int, Error) {
   use body <- result.try(body_as_string(resp.body))
 
   case resp.status >= 200 && resp.status < 300 {
-    False ->
-      Error(HttpFailure(
+    False -> {
+      let message =
         "Pinecone describe_index_stats status "
           <> int.to_string(resp.status)
           <> ": "
-          <> body,
-      ))
+          <> body
+      log_error(message)
+      Error(HttpFailure(message))
+    }
 
     True ->
       case json.parse(body, using: index_stats_decoder()) {
-        Ok(dimension) -> Ok(dimension)
+        Ok(dimension) -> {
+          log_info("Index dimension=" <> int.to_string(dimension))
+          Ok(dimension)
+        }
         Error(error) -> Error(DecodeFailure(format_decode_error(error)))
       }
   }
@@ -251,29 +291,58 @@ fn match_decoder() -> decode.Decoder(QueryMatch) {
   use score <- decode.field("score", decode.float)
   use meta <- decode.field("metadata", metadata_decoder())
 
-  let #(senator_id, bill_id, summary, content, kind, turn_index) = meta
+  let #(senator_id, bill_id, bill_title, summary, content, kind, turn_index, vote_intent, purpose) =
+    meta
 
   decode.success(QueryMatch(
     id: id,
     score: score,
     senator_id: senator_id,
     bill_id: bill_id,
+    bill_title: bill_title,
     summary: summary,
     content: content,
     kind: kind,
     turn_index: turn_index,
+    vote_intent: vote_intent,
+    purpose: purpose,
   ))
 }
 
-fn metadata_decoder() -> decode.Decoder(#(String, String, String, String, String, Int)) {
+fn metadata_decoder() -> decode.Decoder(
+  #(
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    Int,
+    String,
+    String,
+  ),
+) {
   use senator_id <- decode.field("senator_id", decode.string)
   use bill_id <- decode.field("bill_id", decode.string)
+  use bill_title <- decode.optional_field("bill_title", "", decode.string)
   use summary <- decode.field("summary", decode.string)
   use content <- decode.optional_field("content", summary, decode.string)
   use kind <- decode.optional_field("kind", "debate_speech", decode.string)
   use turn_index <- decode.optional_field("turn_index", 0, decode.int)
+  use vote_intent <- decode.optional_field("vote_intent", "undecided", decode.string)
+  use purpose <- decode.optional_field("purpose", "new_argument", decode.string)
 
-  decode.success(#(senator_id, bill_id, summary, content, kind, turn_index))
+  decode.success(#(
+    senator_id,
+    bill_id,
+    bill_title,
+    summary,
+    content,
+    kind,
+    turn_index,
+    vote_intent,
+    purpose,
+  ))
 }
 
 fn index_stats_decoder() -> decode.Decoder(Int) {
@@ -311,6 +380,14 @@ fn http_error_to_string(error: httpc.HttpError) -> String {
       <> format_connect_error(ip6)
       <> ")"
   }
+}
+
+fn log_info(message: String) -> Nil {
+  io.println("INFO [pinecone]: " <> message)
+}
+
+fn log_error(message: String) -> Nil {
+  io.print_error("ERROR [pinecone]: " <> message <> "\n")
 }
 
 fn format_connect_error(error: httpc.ConnectError) -> String {

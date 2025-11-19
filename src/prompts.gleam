@@ -3,6 +3,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/string
+import gleam/option.{None, Some}
 import memory
 import messages
 import senators
@@ -12,6 +13,7 @@ pub fn senator_debate_prompt(
   senator: senators.Senator,
   sess: session.Session,
   recall: List(memory.MemoryHit),
+  intentions: List(String),
 ) -> String {
   let bill = sess.bill
   let history = sess.debate_turns
@@ -40,6 +42,7 @@ pub fn senator_debate_prompt(
 
   let amendment_section = format_amendment_section(sess.amendments)
   let memory_section = format_memory_section(recall)
+  let intentions_section = format_intentions_section(intentions)
   let procedure_context = format_procedure_context(sess.status)
   let vote_section = format_vote_section(sess)
 
@@ -69,6 +72,9 @@ pub fn senator_debate_prompt(
       "=== AMENDMENTS ===",
       amendment_section,
       "",
+      "=== PERSONAL INTENTIONS ===",
+      intentions_section,
+      "",
       "=== PRIOR MEMORY ===",
       memory_section,
       "",
@@ -90,14 +96,16 @@ pub fn senator_debate_prompt(
       "  \"purpose\": \"rebuttal\" | \"new_argument\" | \"amendment\" | \"procedural\" | \"vote_explanation\" | \"message_response\" | \"pass\",",
       "  \"speech\": \"full speech text if will_speak is true, otherwise an empty string\",",
       "  \"vote_intent\": \"yea\" | \"nay\" | \"abstain\" | \"undecided\",",
-      "  \"procedure\": \"none\" | \"call_vote\" | \"propose_amendment\"",
+      "  \"procedure\": \"none\" | \"call_vote\" | \"propose_amendment\",",
+      "  \"amendment_summary\": \"if proposing, the complete replacement bill summary text; otherwise empty string\",",
+      "  \"amendment_rationale\": \"brief justification for the amendment or empty string\"",
       "}",
       "",
       "Rules:",
       "- Output ONLY the JSON object. No markdown, code fences, or commentary.",
       "- If will_speak is false, set speech to \"\" but still provide purpose and vote_intent.",
       "- \"vote_intent\" must be one of: yea, nay, abstain, undecided.",
-      "- Proposing an amendment requires `procedure` = \"propose_amendment\" and your `speech` must contain the full replacement text for the bill summary.",
+      "- Proposing an amendment requires `procedure` = \"propose_amendment\" plus a complete replacement bill summary in `amendment_summary`. Use `speech` to justify or explain, not to carry the formal text.",
       "- All votes are simple majorities. Amendments are voted on before the final bill and replace the bill text if adopted.",
       "- Use `procedure` = \"call_vote\" when debate has surfaced the necessary considerations and you want to move to a vote.",
       "- Reference specific prior arguments or messages when speaking; avoid generic filler.",
@@ -126,6 +134,11 @@ fn format_history_entry(turn: debate.DebateTurn) -> String {
     <> debate.procedure_label(turn.procedure)
     <> ". Summary: "
     <> trim_speech(turn.speech)
+    <> case turn.amendment_summary {
+      None -> ""
+      Some(summary) ->
+        " | Amendment summary proposed: " <> trim_speech(summary)
+    }
 }
 
 fn trim_speech(text: String) -> String {
@@ -193,8 +206,12 @@ fn format_amendment_section(amendments: List(session.Amendment)) -> String {
           <> amendment.proposer.name
           <> " — status: "
           <> format_amendment_status(amendment)
-          <> ". Text: "
+          <> ". Proposed summary: "
           <> trim_speech(amendment.text)
+          <> case string.trim(amendment.rationale) {
+            "" -> ""
+            other -> " (Rationale: " <> other <> ")"
+          }
       })
       |> string.join("\n")
   }
@@ -218,9 +235,13 @@ fn format_memory_section(recall: List(memory.MemoryHit)) -> String {
       |> list.map(fn(hit) {
         "- Turn "
           <> int.to_string(hit.turn_index)
-          <> " on bill "
-          <> hit.bill_id
-          <> " — "
+          <> " on "
+          <> hit.bill_title
+          <> " — intent "
+          <> string.lowercase(hit.vote_intent)
+          <> ", purpose "
+          <> hit.purpose
+          <> ": "
           <> hit.summary
           <> " (relevance "
           <> float.to_string(hit.score)
@@ -258,5 +279,16 @@ fn format_vote_section(sess: session.Session) -> String {
     }
     _ ->
       "No vote is active. Focus on substantive debate, amendments, or procedural motions."
+  }
+}
+
+fn format_intentions_section(intentions: List(String)) -> String {
+  case intentions {
+    [] ->
+      "- No persistent goals or commitments recorded. If you have an ongoing initiative, state it explicitly so future turns can reference it."
+    _ ->
+      intentions
+      |> list.map(fn(line) { "- " <> line })
+      |> string.join("\n")
   }
 }

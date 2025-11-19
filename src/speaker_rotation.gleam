@@ -1,3 +1,4 @@
+import envoy
 import gleam/dynamic/decode
 import gleam/int
 import gleam/io
@@ -15,14 +16,18 @@ import senators
 pub fn prioritized_roster(
   roster: List(senators.Senator),
 ) -> List(senators.Senator) {
-  case request_rotation(roster) {
-    Ok(ids) -> apply_order(roster, ids)
-    Error(error) -> {
-      io.println(
-        "Speaker ordering request failed: " <> llm_client.error_to_string(error),
-      )
-      deterministic_shuffle(roster)
-    }
+  case rotation_enabled() {
+    False -> deterministic_shuffle(roster)
+    True ->
+      case request_rotation(roster) {
+        Ok(ids) -> apply_order(roster, ids)
+        Error(error) -> {
+          io.println(
+            "Speaker ordering request failed: " <> llm_client.error_to_string(error),
+          )
+          deterministic_shuffle(roster)
+        }
+      }
   }
 }
 
@@ -30,7 +35,7 @@ fn request_rotation(
   roster: List(senators.Senator),
 ) -> Result(List(String), llm_client.LlmError) {
   let prompt = prompts.speaker_rotation_prompt(roster)
-  use body <- result.try(llm_client.call_llm_with_timeout(prompt, 2500))
+  use body <- result.try(llm_client.call_llm_with_timeout(prompt, rotation_timeout_ms()))
   parse_id_list(body)
 }
 
@@ -177,4 +182,22 @@ fn speaker_weight(identifier: String) -> Int {
     let value = string.utf_codepoint_to_int(codepoint)
     weight * 1_103_515 + value + 97_183
   })
+}
+
+fn rotation_enabled() -> Bool {
+  case envoy.get("HARMONY_SPEAKER_ROTATION_LLM") {
+    Ok(value) -> string.lowercase(string.trim(value)) == "true"
+    Error(_) -> False
+  }
+}
+
+fn rotation_timeout_ms() -> Int {
+  case envoy.get("HARMONY_SPEAKER_ROTATION_TIMEOUT_MS") {
+    Ok(value) ->
+      case int.parse(value) {
+        Ok(parsed) -> parsed
+        Error(_) -> 2500
+      }
+    Error(_) -> 2500
+  }
 }

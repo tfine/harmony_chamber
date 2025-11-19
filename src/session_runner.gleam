@@ -7,6 +7,7 @@ import gleam/option.{type Option, None, Some}
 import llm_client
 import memory
 import senators
+import senator_agents
 import session
 import simplifile
 import gleam/bit_array
@@ -21,8 +22,9 @@ pub fn run_steps(
   roster: List(senators.Senator),
   steps: Int,
   mem: memory.Memory,
+  agents: senator_agents.Registry,
 ) -> session.Session {
-  run_steps_loop(start, roster, 0, steps, mem)
+  run_steps_loop(start, roster, 0, steps, mem, agents)
 }
 
 fn run_steps_loop(
@@ -31,15 +33,16 @@ fn run_steps_loop(
   completed: Int,
   target: Int,
   mem: memory.Memory,
+  agents: senator_agents.Registry,
 ) -> session.Session {
   case completed >= target {
     True -> current
     False -> {
-      case chamber.step_session(current, roster, mem) {
-        Ok(updated) -> run_steps_loop(updated, roster, completed + 1, target, mem)
+      case chamber.step_session(current, roster, agents, mem) {
+        Ok(updated) -> run_steps_loop(updated, roster, completed + 1, target, mem, agents)
         Error(error) -> {
           let fallback_session = apply_fallback_decision(current, roster, error, mem)
-          run_steps_loop(fallback_session, roster, completed + 1, target, mem)
+          run_steps_loop(fallback_session, roster, completed + 1, target, mem, agents)
         }
       }
     }
@@ -96,6 +99,8 @@ fn apply_fallback_decision(
           debate.Undecided,
           "message_response",
           debate.NoProcedure,
+          None,
+          None,
         )
 
       let updated =
@@ -110,8 +115,10 @@ fn apply_fallback_decision(
           will_speak: True,
           speech: speech,
           vote_intent: intent,
-          purpose: _,
-          procedure: _,
+          purpose: purpose,
+          procedure: procedure,
+          amendment_summary: _,
+          amendment_rationale: _,
         ) -> {
           let _ =
             memory.add_debate_turn(
@@ -121,6 +128,8 @@ fn apply_fallback_decision(
               updated.next_turn_index - 1,
               speech,
               intent,
+              purpose,
+              procedure,
             )
           updated
         }

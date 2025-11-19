@@ -16,3 +16,6 @@ rebar.lock
 
 # ASDF builds (if ever inside repo)
 .erlang.cookie
+
+# Environment files
+.env

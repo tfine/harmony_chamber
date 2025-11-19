@@ -32,7 +32,9 @@ pub type Amendment {
   Amendment(
     id: Int,
     proposer: senators.Senator,
+    base_summary: String,
     text: String,
+    rationale: String,
     status: AmendmentStatus,
     vote_result: Option(VoteResult),
   )
@@ -77,12 +79,12 @@ pub type VoteResult {
   VoteResult(tally: VoteTally, passed: Bool)
 }
 
-const call_vote_threshold = 2
+// Require at least this many explicit call_vote signals before auto-transitioning.
+const call_vote_threshold = 5
 const automatic_vote_turn_limit = 16
 const default_inbox_limit = 6
 const vote_reminder_rounds = 6
-const default_llm_calls_limit = 200
-
+const default_llm_calls_limit = 1000
 pub fn initial_session(bill: Bill) -> Session {
   Session(
     bill: bill,
@@ -132,6 +134,8 @@ pub fn apply_debate_decision(
     vote_intent,
     purpose,
     procedure,
+    amendment_summary,
+    amendment_rationale,
   ) = safe_decision
 
   let vote_intents =
@@ -153,6 +157,8 @@ pub fn apply_debate_decision(
             vote_intent: vote_intent,
             purpose: purpose,
             procedure: procedure,
+            amendment_summary: amendment_summary,
+            amendment_rationale: amendment_rationale,
           )
 
         #(
@@ -174,7 +180,13 @@ pub fn apply_debate_decision(
     )
 
   case procedure {
-    debate.ProposeAmendment -> register_amendment(updated, senator, speech)
+    debate.ProposeAmendment ->
+      case amendment_summary {
+        Some(summary) ->
+          register_amendment(updated, senator, summary, amendment_rationale)
+        None ->
+          record_error(updated, "Amendment ignored: summary payload missing for " <> senator.name)
+      }
     _ -> updated
   }
 }
@@ -189,6 +201,8 @@ fn guard_empty_speech(
     vote_intent,
     purpose,
     procedure,
+    amendment_summary,
+    amendment_rationale,
   ) = decision
 
   let trimmed = string.trim(speech)
@@ -200,7 +214,15 @@ fn guard_empty_speech(
         "Apologies — my prepared remarks did not transmit correctly. I'll rejoin shortly with a full statement after I verify the feed."
 
       #(
-        debate.SpeakDecision(True, fallback, vote_intent, purpose, procedure),
+        debate.SpeakDecision(
+          True,
+          fallback,
+          vote_intent,
+          purpose,
+          procedure,
+          amendment_summary,
+          amendment_rationale,
+        ),
         Some("Recovered placeholder speech for " <> senator.name),
       )
     }
@@ -286,7 +308,7 @@ pub fn vote_focus_for_transition(
         |> list.length
 
       let decision_requests_vote = case decision {
-        debate.SpeakDecision(_, _, _, _, debate.CallVote) -> True
+        debate.SpeakDecision(_, _, _, _, debate.CallVote, _, _) -> True
         _ -> False
       }
 
@@ -385,14 +407,30 @@ fn resolve_amendment_vote(session: Session, amendment_id: Int) -> Session {
         False -> session.bill
       }
 
+      let #(rebased_amendments, revision_notices) =
+        case passed {
+          True ->
+            rebase_pending_amendments(
+              updated_amendments,
+              amendment.text,
+              amendment.id,
+            )
+          False -> #(updated_amendments, [])
+        }
+
+      let message_log =
+        revision_notices
+        |> list.fold(session.messages, fn(acc, notice) { [notice, ..acc] })
+
       Session(
         ..session,
-        amendments: updated_amendments,
+        amendments: rebased_amendments,
         bill: updated_bill,
         status: InDebate,
         vote_intents: dict.new(),
         vote_queue: [],
         vote_reminders_left: vote_reminder_rounds,
+        messages: message_log,
       )
     }
   }
@@ -401,18 +439,22 @@ fn resolve_amendment_vote(session: Session, amendment_id: Int) -> Session {
 fn register_amendment(
   session: Session,
   senator: senators.Senator,
-  speech: String,
+  submitted_summary: String,
+  rationale: Option(String),
 ) -> Session {
-  let text = case string.trim(speech) {
-    "" -> "Amendment text unavailable"
-    cleaned -> cleaned
+  let text = normalized_amendment_summary(submitted_summary, session.bill.summary)
+  let rationale_text = case rationale {
+    Some(value) -> string.trim(value)
+    None -> ""
   }
 
   let amendment =
     Amendment(
       id: session.next_amendment_id,
       proposer: senator,
+      base_summary: session.bill.summary,
       text: text,
+      rationale: rationale_text,
       status: Pending,
       vote_result: None,
     )
@@ -422,6 +464,87 @@ fn register_amendment(
     amendments: list.append(session.amendments, [amendment]),
     next_amendment_id: session.next_amendment_id + 1,
   )
+}
+
+fn normalized_amendment_summary(proposed: String, current_summary: String) -> String {
+  let cleaned = string.trim(proposed)
+  case string.length(cleaned) < 120 {
+    True -> current_summary
+    False -> cleaned
+  }
+}
+
+fn rebase_pending_amendments(
+  amendments: List(Amendment),
+  new_summary: String,
+  adopted_id: Int,
+) -> #(List(Amendment), List(messages.Message)) {
+  let #(updated, notices) =
+    amendments
+    |> list.fold(#([], []), fn(acc, amendment) {
+      let #(amendments_acc, notices_acc) = acc
+      let #(rebased, notice) =
+        rebase_amendment(amendment, new_summary, adopted_id)
+      let next_notices = case notice {
+        Some(message) -> [message, ..notices_acc]
+        None -> notices_acc
+      }
+      #([rebased, ..amendments_acc], next_notices)
+    })
+
+  #(list.reverse(updated), list.reverse(notices))
+}
+
+fn rebase_amendment(
+  amendment: Amendment,
+  new_summary: String,
+  adopted_id: Int,
+) -> #(Amendment, Option(messages.Message)) {
+  case amendment.id == adopted_id {
+    True -> #(amendment, None)
+    False ->
+      case amendment.status {
+        Pending -> {
+          let note = append_rebase_note(amendment.rationale, adopted_id)
+          let updated =
+            Amendment(
+              ..amendment,
+              base_summary: new_summary,
+              rationale: note,
+            )
+          let notice =
+            messages.DirectMessage(
+              from: "Parliamentarian",
+              to: amendment.proposer.id,
+              body:
+                "Amendment "
+                  <> int.to_string(amendment.id)
+                  <> " now references updated bill language because amendment "
+                  <> int.to_string(adopted_id)
+                  <> " passed. Please revise it to align with the new summary.",
+            )
+          #(updated, Some(notice))
+        }
+        _ -> #(amendment, None)
+      }
+  }
+}
+
+fn append_rebase_note(existing: String, adopted_id: Int) -> String {
+  let marker = "[Rebased"
+  case string.contains(existing, marker) {
+    True -> existing
+    False -> {
+      let note =
+        "[Rebased after amendment "
+          <> int.to_string(adopted_id)
+          <> " updated the bill summary. Review and adjust.]"
+      case string.trim(existing) == "" {
+        True -> note
+        False -> existing <> "\n\n" <> note
+      }
+    }
+  }
 }
 
 fn select_vote_focus(session: Session) -> VoteFocus {

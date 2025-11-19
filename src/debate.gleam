@@ -1,4 +1,5 @@
 import gleam/string
+import gleam/option.{type Option}
 import senators
 
 pub type VoteIntent {
@@ -15,6 +16,8 @@ pub type DebateDecision {
     vote_intent: VoteIntent,
     purpose: String,
     procedure: Procedure,
+    amendment_summary: Option(String),
+    amendment_rationale: Option(String),
   )
 }
 
@@ -26,6 +29,8 @@ pub type DebateTurn {
     vote_intent: VoteIntent,
     purpose: String,
     procedure: Procedure,
+    amendment_summary: Option(String),
+    amendment_rationale: Option(String),
   )
 }
 

@@ -47,6 +47,7 @@ pub type LiveFragments {
     roster: String,
     alert: String,
     vote_active: Bool,
+    amendment_considered: Bool,
   )
 }
 
@@ -69,6 +70,16 @@ pub fn render_session_page_from_fragments(
   let refresh_script = live_update_script()
   let vote_block = fragments.vote
   let debate_block = fragments.debate
+  let vote_debate_block = case fragments.vote_active {
+    True -> vote_block <> debate_block
+    False -> debate_block <> vote_block
+  }
+  let ordered_panels =
+    case fragments.amendment_considered {
+      True -> [fragments.bill, fragments.amendment, vote_debate_block]
+      False -> [fragments.bill, vote_debate_block, fragments.amendment]
+    }
+  let main_section = ordered_panels |> string.join("\n          ")
 
   "<!doctype html>
    <html lang=\"en\">
@@ -80,15 +91,10 @@ pub fn render_session_page_from_fragments(
      </head>
      <body class=\"" <> body_class <> "\">
       <div class=\"page\">
-        " <> fragments.hero <> "
-        " <> fragments.alert <> "
-        <main class=\"grid\">
-          " <> fragments.bill <> "
-          " <> case fragments.vote_active {
-            True -> vote_block <> debate_block
-            False -> debate_block <> vote_block
-          } <> "
-          " <> fragments.amendment <> "
+       " <> fragments.hero <> "
+       " <> fragments.alert <> "
+       <main class=\"grid\">
+          " <> main_section <> "
          </main>
          " <> fragments.roster <> "
        </div>
@@ -113,6 +119,15 @@ pub fn live_fragments(
   let amendment_section = render_amendments(sess.amendments)
   let roster_section = render_roster(sess, senators_list)
   let error_section = render_error_banner(sess.last_error)
+  let pending_amendment =
+    sess.amendments
+    |> list.any(fn(amendment) { amendment.status == session.Pending })
+  let amendment_considered =
+    case sess.status {
+      session.Voting(session.AmendmentVote(_)) -> True
+      session.InDebate -> pending_amendment
+      _ -> False
+    }
 
   LiveFragments(
     hero: hero,
@@ -123,6 +138,7 @@ pub fn live_fragments(
     roster: roster_section,
     alert: error_section,
     vote_active: case sess.status { session.Voting(_) -> True _ -> False },
+    amendment_considered: amendment_considered,
   )
 }
 
@@ -135,6 +151,7 @@ pub fn render_live_payload(fragments: LiveFragments) -> String {
     #("amendment", json.string(fragments.amendment)),
     #("roster", json.string(fragments.roster)),
     #("alert", json.string(fragments.alert)),
+    #("amendment_considered", json.bool(fragments.amendment_considered)),
   ])
   |> json.to_string()
 }
@@ -291,14 +308,24 @@ pub fn render_senators_index_page(
 pub fn render_senator_profile_page(
   senator: senators.Senator,
   sess: session.Session,
+  intentions: List(String),
+  posts: List(debate.DebateTurn),
   notes: List(office.Note),
   current_theme: theme.Theme,
 ) -> String {
   let body_class = theme.body_class(current_theme)
   let nav_links = render_nav_links(current_theme)
   let theme_switcher = render_theme_switcher(current_theme, "/senators/" <> senator.id)
-  let recent = recent_statement(senator, sess)
-  let note_list = render_notes(notes)
+  let intentions_panel = render_intentions_panel(intentions)
+  let mailbox_panel = render_mailbox_panel(senator, notes)
+  let blog_panel = render_statement_blog(posts, sess.bill)
+  let bill_panel =
+    "<section class=\"panel\">
+       <h2>Current Bill</h2>
+       <p class=\"eyebrow\">" <> sess.bill.id <> "</p>
+       <h3>" <> escape_html(sess.bill.title) <> "</h3>
+       <p>" <> escape_html(sess.bill.summary) <> "</p>
+     </section>"
 
   "<!doctype html>
    <html lang=\"en\">
@@ -336,38 +363,18 @@ pub fn render_senator_profile_page(
            </div>
          </header>
          <main class=\"grid\">
-           <section class=\"panel\">
-             <h2>Current Bill</h2>
-             <p class=\"eyebrow\">"
-    <> sess.bill.id
-    <> "</p>
-             <h3>"
-    <> sess.bill.title
-    <> "</h3>
-             <p>"
-    <> sess.bill.summary
-    <> "</p>
-           </section>
-           <section class=\"panel\">
-             <h2>Latest Floor Statement</h2>
-             <p>"
-    <> recent
-    <> "</p>
-           </section>
-           <section class=\"panel\">
-             <h2>Constituent Notes</h2>
-             "
-    <> note_list
+           "
+    <> intentions_panel
     <> "
-             <form method=\"post\" action=\"/senators/"
-    <> senator.id
-    <> "/notes\">
-               <label>Name<br /><input type=\"text\" name=\"name\" placeholder=\"Your name\" /></label><br />
-               <label>Contact<br /><input type=\"text\" name=\"contact\" placeholder=\"Email or phone\" /></label><br />
-               <label>Message<br /><textarea name=\"body\" rows=\"4\" placeholder=\"Share your priority or feedback\"></textarea></label><br />
-               <button type=\"submit\">Send to office</button>
-             </form>
-           </section>
+           "
+    <> mailbox_panel
+    <> "
+           "
+    <> bill_panel
+    <> "
+           "
+    <> blog_panel
+    <> "
          </main>
        </div>
      </body>
@@ -421,6 +428,22 @@ fn render_live_vote_panel(
   let drama_toggle = render_drama_toggle(query_params, drama_enabled)
   let stats = render_vote_stats(tally, total_members, outstanding)
 
+  let senator_vote_cards =
+    senators_list
+    |> list.map(fn(senator) {
+      let intent = case session.vote_intent_for(sess, senator.id) {
+        Some(value) -> value
+        None -> debate.Undecided
+      }
+      render_senator_vote_card(senator, intent)
+    })
+    |> string.join("")
+
+  let spotlights = case drama_enabled {
+    True -> "<div class=\"vote-spotlights\">" <> senator_vote_cards <> "</div>"
+    False -> ""
+  }
+
   "<section class=\"panel vote-panel\" id=\"vote-panel\">
      <div class=\"panel-header\">
        <div>
@@ -435,6 +458,7 @@ fn render_live_vote_panel(
      " <> bars <> "
      <p class=\"vote-summary\">" <> summary <> "</p>
     " <> stats <> "
+    " <> spotlights <> "
    </section>"
 }
 
@@ -515,6 +539,28 @@ fn stat_pill(label: String, value: String) -> String {
     <> ":</strong> "
     <> escape_html(value)
     <> "</span>"
+}
+
+fn render_senator_vote_card(
+  senator: senators.Senator,
+  intent: debate.VoteIntent,
+) -> String {
+  let intent_label = debate.vote_intent_label(intent)
+  let intent_class = case intent {
+    debate.Yea -> "is-yea"
+    debate.Nay -> "is-nay"
+    debate.Abstain -> "is-abstain"
+    debate.Undecided -> "is-undecided"
+  }
+  let anchor_id = senator_anchor_id(senator)
+
+  "<article class=\"card vote-card " <> intent_class <> "\" id=\"" <> anchor_id <> "\">
+     <div class=\"vote-card-header\">
+       <h3>" <> escape_html(senator.name) <> "</h3>
+       <span class=\"pill intent-pill " <> intent_class <> "\">" <> intent_label <> "</span>
+     </div>
+     <p class=\"vote-card-sub\">" <> escape_html(senator.state) <> "</p>
+   </article>"
 }
 
 fn majority_threshold(total_members: Int) -> Int {
@@ -1468,18 +1514,6 @@ fn render_senator_card(
   </section>"
 }
 
-fn recent_statement(senator: senators.Senator, sess: session.Session) -> String {
-  let matches =
-    sess.debate_turns
-    |> list.filter(fn(turn) { turn.senator.id == senator.id })
-    |> list.reverse
-
-  case matches {
-    [] -> "No recorded statements yet."
-    [turn, ..] -> trim_text(turn.speech)
-  }
-}
-
 fn latest_turn_for(
   senator_id: String,
   turns: List(debate.DebateTurn),
@@ -1823,6 +1857,10 @@ fn stylesheet() -> String {
     grid-column: 1 / -1;
   }
 
+  .transcript-panel {
+    grid-column: 1 / -1;
+  }
+
   .vote-bars {
     display: grid;
     gap: 0.75rem;
@@ -1889,19 +1927,22 @@ fn stylesheet() -> String {
 
   .vote-spotlights {
     display: grid;
-    gap: 0.75rem;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 0.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    margin-top: 1rem;
   }
 
   .vote-card {
     border: 1px solid #d9c28d;
     background: #fdf9ef;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+    padding: 0.75rem;
+    border-radius: 0.75rem;
   }
 
   .vote-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 26px var(--shadow);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px var(--shadow);
   }
 
   .vote-card.is-yea { border-color: #4caf50; }
@@ -1916,7 +1957,7 @@ fn stylesheet() -> String {
 
   @keyframes vote-pulse {
     0% { box-shadow: 0 0 0 0 rgba(161, 124, 52, 0.35); }
-    70% { box-shadow: 0 0 0 16px rgba(161, 124, 52, 0); }
+    70% { box-shadow: 0 0 0 12px rgba(161, 124, 52, 0); }
     100% { box-shadow: 0 0 0 0 rgba(161, 124, 52, 0); }
   }
 
@@ -1924,16 +1965,23 @@ fn stylesheet() -> String {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.3rem;
+    margin-bottom: 0.2rem;
+  }
+
+  .vote-card-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.2;
   }
 
   .intent-pill {
-    font-size: 0.8rem;
-    padding: 0.2rem 0.7rem;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
   }
-
+  
   .intent-pill.is-yea {
     background: #e8f5e9;
     border-color: #4caf50;
@@ -1959,9 +2007,10 @@ fn stylesheet() -> String {
   }
 
   .vote-card-sub {
-    margin: 0.15rem 0 0;
+    margin: 0;
     color: #6f5c38;
     font-weight: 600;
+    font-size: 0.85rem;
   }
 
   .vote-card-bio {
@@ -2741,4 +2790,70 @@ fn stylesheet() -> String {
     }
   }
   "
+}
+fn render_intentions_panel(intentions: List(String)) -> String {
+  let body = case intentions {
+    [] ->
+      "<p>No declared long-term initiatives. Share your ongoing goals so constituents can track them.</p>"
+    _ ->
+      intentions
+      |> list.map(fn(line) { "<li>" <> escape_html(line) <> "</li>" })
+      |> string.join("")
+      |> fn(items) { "<ul class=\"intention-list\">" <> items <> "</ul>" }
+  }
+
+  "<section class=\"panel intention-panel\">
+     <h2>Current Intentions</h2>
+     " <> body <> "
+   </section>"
+}
+
+fn render_mailbox_panel(
+  senator: senators.Senator,
+  notes: List(office.Note),
+) -> String {
+  let note_list = render_notes(notes)
+
+  "<section class=\"panel mailbox-panel\">
+     <h2>Constituent Mailbox</h2>
+     <form method=\"post\" action=\"/senators/" <> senator.id <> "/notes\" class=\"mailbox-form\">
+       <label>Name<br /><input type=\"text\" name=\"name\" placeholder=\"Your name\" /></label><br />
+       <label>Contact<br /><input type=\"text\" name=\"contact\" placeholder=\"Email or phone\" /></label><br />
+       <label>Message<br /><textarea name=\"body\" rows=\"4\" placeholder=\"Share your priority or feedback\"></textarea></label><br />
+       <button type=\"submit\">Send to office</button>
+     </form>
+     <div class=\"note-list\">
+       " <> note_list <> "
+     </div>
+   </section>"
+}
+
+fn render_statement_blog(
+  posts: List(debate.DebateTurn),
+  bill: session.Bill,
+) -> String {
+  let content = case posts {
+    [] ->
+      "<p>No floor statements yet for this session.</p>"
+    _ ->
+      posts
+      |> list.map(fn(turn) { render_blog_entry(turn, bill) })
+      |> string.join("")
+  }
+
+  "<section class=\"panel blog-panel\">
+     <h2>Floor Statements Feed</h2>
+     " <> content <> "
+   </section>"
+}
+
+fn render_blog_entry(turn: debate.DebateTurn, bill: session.Bill) -> String {
+  let intent = debate.vote_intent_label(turn.vote_intent)
+  let procedure = debate.procedure_label(turn.procedure)
+
+  "<article class=\"blog-entry\">
+     <h3>Turn " <> int.to_string(turn.turn_index) <> ": " <> escape_html(bill.title) <> "</h3>
+     <p class=\"blog-meta\">Vote intent: " <> escape_html(intent) <> " &middot; Procedure: " <> escape_html(procedure) <> " &middot; Purpose: " <> escape_html(turn.purpose) <> "</p>
+     <div class=\"blog-body\">" <> format_speech(turn.speech) <> "</div>
+   </article>"
 }

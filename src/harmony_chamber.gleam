@@ -1,4 +1,6 @@
 import autopilot
+import debate
+import demo
 import envoy
 import gleam/erlang/process
 import gleam/http
@@ -9,9 +11,11 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import html_renderer
+import llm_client
 import mist
 import memory
 import office
+import senator_agents
 import senators
 import session
 import session_manager
@@ -24,6 +28,7 @@ import wisp/wisp_mist
 fn handle_request(
   manager: session_manager.Manager,
   autop: autopilot.Autopilot,
+  agents: senator_agents.Registry,
   roster: List(senators.Senator),
   office: office.Office,
   request: wisp.Request,
@@ -38,7 +43,7 @@ fn handle_request(
       )
     ["senators"] -> handle_senators_index(manager, office, roster, request)
     ["senators", id] ->
-      handle_senator_profile(manager, office, roster, id, request)
+      handle_senator_profile(manager, office, agents, roster, id, request)
     ["senators", id, "notes"] ->
       handle_senator_note(manager, office, roster, id, request)
     ["docket"] -> handle_docket(manager, request)
@@ -108,6 +113,7 @@ fn handle_senators_index(
 fn handle_senator_profile(
   manager: session_manager.Manager,
   office: office.Office,
+  agents: senator_agents.Registry,
   roster: List(senators.Senator),
   id: String,
   request: wisp.Request,
@@ -120,10 +126,14 @@ fn handle_senator_profile(
       None -> wisp.not_found()
       Some(senator) -> {
         let notes = office.notes_for(office, id)
+        let intentions = senator_agents.intentions_for(agents, senator.id)
+        let posts = senator_blog_posts(snapshot, senator)
         let page =
           html_renderer.render_senator_profile_page(
             senator,
             snapshot,
+            intentions,
+            posts,
             notes,
             current_theme,
           )
@@ -217,10 +227,12 @@ pub fn main() {
   let snapshot_path = snapshot_file_path()
   let docket = bill_docket()
   let mem = memory.init()
+  let agents = senator_agents.start(roster, mem)
   let office_handle = office.start()
   let initial_session = load_or_init_session(snapshot_path, docket)
   let manager = session_manager.start(initial_session)
   let secret_key_base = "dev_secret_key_change_me"
+  boot_probe_llm()
 
   let autop_handle =
     autopilot.start(
@@ -228,10 +240,13 @@ pub fn main() {
       manager,
       speaking_roster,
       mem,
+      agents,
     )
 
   let router =
-    fn(request) { handle_request(manager, autop_handle, roster, office_handle, request) }
+    fn(request) {
+      handle_request(manager, autop_handle, agents, roster, office_handle, request)
+    }
 
   let assert Ok(_) =
     router
@@ -242,6 +257,14 @@ pub fn main() {
     |> mist.start
 
   process.sleep_forever()
+}
+
+fn boot_probe_llm() {
+  case demo.demo_senator_llm() {
+    Ok(_) -> io.println("LLM probe succeeded")
+    Error(error) ->
+      io.println("LLM probe failed: " <> llm_client.error_to_string(error))
+  }
 }
 
 fn load_or_init_session(
@@ -361,6 +384,16 @@ fn find_senator(
         False -> find_senator(tail, id)
       }
   }
+}
+
+fn senator_blog_posts(
+  sess: session.Session,
+  senator: senators.Senator,
+) -> List(debate.DebateTurn) {
+  sess.debate_turns
+  |> list.filter(fn(turn) { turn.senator.id == senator.id })
+  |> list.reverse
+  |> list.take(5)
 }
 
 fn field_value(fields: List(#(String, String)), key: String) -> String {

@@ -5,6 +5,7 @@ import session
 import session_manager
 import session_runner
 import session_store
+import senator_agents
 import senators
 
 pub type Settings {
@@ -16,6 +17,8 @@ pub type Settings {
     export_proceedings: Bool,
   )
 }
+
+const status_timeout_ms = 50
 
 pub opaque type Autopilot {
   Autopilot(mailbox: process.Subject(Message))
@@ -38,6 +41,7 @@ type State {
     memory: memory.Memory,
     running: Bool,
     export_proceedings: Bool,
+    agents: senator_agents.Registry,
   )
 }
 
@@ -48,6 +52,7 @@ pub fn start(
   manager: session_manager.Manager,
   roster: List(senators.Senator),
   mem: memory.Memory,
+  agents: senator_agents.Registry,
 ) -> Autopilot {
   let handshake = process.new_subject()
   let state = State(
@@ -59,6 +64,7 @@ pub fn start(
     memory: mem,
     running: settings.enabled,
     export_proceedings: settings.export_proceedings,
+    agents: agents,
   )
 
   let _pid =
@@ -87,7 +93,10 @@ pub fn stop(pilot: Autopilot) -> Nil {
 pub fn status(pilot: Autopilot) -> Bool {
   let reply = process.new_subject()
   process.send(pilot.mailbox, Query(reply))
-  process.receive_forever(reply)
+  case process.receive(reply, status_timeout_ms) {
+    Ok(running) -> running
+    Error(Nil) -> True
+  }
 }
 
 fn loop(mailbox: process.Subject(Message), state: State) -> Nil {
@@ -131,23 +140,23 @@ fn maybe_tick(state: State) -> State {
           state.roster,
           state.steps_per_tick,
           state.memory,
+          state.agents,
         )
 
-      // If the session has closed, attempt to publish proceedings.
-  let _ =
-    case advanced.status {
-      session.Closed -> {
-        case state.export_proceedings {
-          True -> {
-            let path = session_runner.default_proceedings_path(advanced)
-            let _ = session_runner.publish_proceedings(advanced, path)
-            Nil
+      let _ =
+        case advanced.status {
+          session.Closed -> {
+            case state.export_proceedings {
+              True -> {
+                let path = session_runner.default_proceedings_path(advanced)
+                let _ = session_runner.publish_proceedings(advanced, path)
+                Nil
+              }
+              False -> Nil
+            }
           }
-          False -> Nil
+          _ -> Nil
         }
-      }
-      _ -> Nil
-    }
 
       session_manager.replace(state.manager, advanced)
       persist_snapshot(state.snapshot_path, advanced)

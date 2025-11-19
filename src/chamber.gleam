@@ -7,24 +7,28 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import llm_client
 import memory
+import senator_agents
+import senator_process
 import senators
 import session
 
 pub fn step_session(
   current_session: session.Session,
   senator_cycle: List(senators.Senator),
+  agents: senator_agents.Registry,
   mem: memory.Memory,
 ) -> Result(session.Session, llm_client.LlmError) {
   case current_session.status {
     session.Closed -> Ok(current_session)
-    session.Voting(_) -> step_vote_round(current_session, senator_cycle, mem)
-    session.InDebate -> step_debate_round(current_session, senator_cycle, mem)
+    session.Voting(_) -> step_vote_round(current_session, senator_cycle, agents, mem)
+    session.InDebate -> step_debate_round(current_session, senator_cycle, agents, mem)
   }
 }
 
 fn step_debate_round(
   current_session: session.Session,
   senator_cycle: List(senators.Senator),
+  agents: senator_agents.Registry,
   mem: memory.Memory,
 ) -> Result(session.Session, llm_client.LlmError) {
   case current_session.llm_calls_used >= current_session.llm_calls_limit {
@@ -40,7 +44,8 @@ fn step_debate_round(
         None -> Ok(current_session)
 
         Some(senator) -> {
-          use decision <- result.try(agent_bridge.request_debate_decision(
+          use decision <- result.try(request_decision_from_agent(
+            agents,
             senator,
             current_session,
             mem,
@@ -59,8 +64,10 @@ fn step_debate_round(
                 will_speak: True,
                 speech: speech,
                 vote_intent: intent,
-                purpose: _,
-                procedure: _,
+                purpose: purpose,
+                procedure: procedure,
+                amendment_summary: _,
+                amendment_rationale: _,
               ) ->
                 memory.add_debate_turn(
                   mem,
@@ -69,6 +76,8 @@ fn step_debate_round(
                   updated.next_turn_index - 1,
                   speech,
                   intent,
+                  purpose,
+                  procedure,
                 )
               _ -> Ok(Nil)
             }
@@ -108,6 +117,7 @@ fn maybe_move_to_voting(
 fn step_vote_round(
   current_session: session.Session,
   senator_cycle: List(senators.Senator),
+  agents: senator_agents.Registry,
   mem: memory.Memory,
 ) -> Result(session.Session, llm_client.LlmError) {
   case current_session.llm_calls_used >= current_session.llm_calls_limit {
@@ -119,7 +129,8 @@ fn step_vote_round(
             None ->
               Ok(session.drop_vote_target(current_session))
             Some(senator) -> {
-              use decision <- result.try(agent_bridge.request_debate_decision(
+              use decision <- result.try(request_decision_from_agent(
+                agents,
                 senator,
                 current_session,
                 mem,
@@ -137,8 +148,10 @@ fn step_vote_round(
                     will_speak: True,
                     speech: speech,
                     vote_intent: intent,
-                    purpose: _,
-                    procedure: _,
+                    purpose: purpose,
+                    procedure: procedure,
+                    amendment_summary: _,
+                    amendment_rationale: _,
                   ) ->
                     memory.add_debate_turn(
                       mem,
@@ -147,6 +160,8 @@ fn step_vote_round(
                       updated.next_turn_index - 1,
                       speech,
                       intent,
+                      purpose,
+                      procedure,
                     )
                   _ -> Ok(Nil)
                 }
@@ -190,6 +205,24 @@ fn find_senator(
         True -> Some(head)
         False -> find_senator(tail, target_id)
       }
+  }
+}
+
+fn request_decision_from_agent(
+  agents: senator_agents.Registry,
+  senator: senators.Senator,
+  sess: session.Session,
+  mem: memory.Memory,
+) -> Result(debate.DebateDecision, llm_client.LlmError) {
+  case senator_agents.get(agents, senator.id) {
+    Some(process) -> senator_process.request_decision(process, sess)
+    None ->
+      agent_bridge.request_debate_decision(
+        senator,
+        sess,
+        mem,
+        [],
+      )
   }
 }
 
