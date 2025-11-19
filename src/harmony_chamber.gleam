@@ -319,6 +319,7 @@ fn autopilot_settings(snapshot_path: String) -> autopilot.Settings {
     tick_ms: tick_ms,
     steps_per_tick: steps_per_tick,
     snapshot_path: snapshot_path,
+    export_proceedings: env_bool("HARMONY_EXPORT_PROCEEDINGS", False),
   )
 }
 

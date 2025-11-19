@@ -2,6 +2,7 @@ import debate
 import envoy
 import gleam/bit_array
 import gleam/dynamic/decode
+import gleam/erlang/process
 import gleam/http
 import gleam/http/request
 import gleam/httpc
@@ -78,6 +79,24 @@ pub fn embed(text: String) -> Result(List(Float), LlmError) {
       Error(HttpFailure(
         "OpenAI status " <> int.to_string(resp.status) <> ": " <> body,
       ))
+  }
+}
+
+/// Spawn an LLM request in a worker process and enforce a timeout so callers
+/// don't block indefinitely if the upstream model is slow.
+pub fn call_llm_with_timeout(prompt: String, timeout_ms: Int) -> Result(String, LlmError) {
+  let reply = process.new_subject()
+
+  let _worker =
+    process.spawn(fn() {
+      let result = call_llm(prompt)
+      process.send(reply, result)
+    })
+
+  case process.receive(reply, timeout_ms) {
+    Ok(result) -> result
+    Error(Nil) ->
+      Error(HttpFailure("LLM call timed out after " <> int.to_string(timeout_ms) <> "ms"))
   }
 }
 

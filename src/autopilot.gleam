@@ -13,6 +13,7 @@ pub type Settings {
     tick_ms: Int,
     steps_per_tick: Int,
     snapshot_path: String,
+    export_proceedings: Bool,
   )
 }
 
@@ -36,9 +37,12 @@ type State {
     snapshot_path: String,
     memory: memory.Memory,
     running: Bool,
+    export_proceedings: Bool,
   )
 }
 
+/// Starts a background process that periodically advances the session and
+/// persists snapshots. Controlled via pause/resume/stop messages.
 pub fn start(
   settings: Settings,
   manager: session_manager.Manager,
@@ -54,6 +58,7 @@ pub fn start(
     snapshot_path: settings.snapshot_path,
     memory: mem,
     running: settings.enabled,
+    export_proceedings: settings.export_proceedings,
   )
 
   let _pid =
@@ -127,6 +132,22 @@ fn maybe_tick(state: State) -> State {
           state.steps_per_tick,
           state.memory,
         )
+
+      // If the session has closed, attempt to publish proceedings.
+  let _ =
+    case advanced.status {
+      session.Closed -> {
+        case state.export_proceedings {
+          True -> {
+            let path = session_runner.default_proceedings_path(advanced)
+            let _ = session_runner.publish_proceedings(advanced, path)
+            Nil
+          }
+          False -> Nil
+        }
+      }
+      _ -> Nil
+    }
 
       session_manager.replace(state.manager, advanced)
       persist_snapshot(state.snapshot_path, advanced)

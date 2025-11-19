@@ -44,6 +44,7 @@ pub type QueryMatch {
   )
 }
 
+// Connect to Pinecone, verifying credentials via /actions/whoami.
 pub fn connect() -> Result(Pinecone, Error) {
   let api_key =
     envoy.get("PINECONE_API_KEY")
@@ -61,7 +62,9 @@ pub fn connect() -> Result(Pinecone, Error) {
   use environment <- result.try(environment)
   use index <- result.try(index)
 
-  let url = "https://api.pinecone.io/whoami"
+  // Pinecone whoami now lives under /actions (old /whoami returns 404)
+  // Pinecone whoami is under /actions; /whoami returns 404.
+  let url = "https://api.pinecone.io/actions/whoami"
   let request = build_request(url, http.Get, api_key, "")
 
   use req <- result.try(request)
@@ -165,6 +168,32 @@ pub fn query(
   }
 }
 
+/// Fetch index stats to discover attributes like the embedding dimension.
+pub fn describe_index_stats(index: Pinecone) -> Result(Int, Error) {
+  let url = index_host(index) <> "/describe_index_stats"
+  let request = build_request(url, http.Post, index.api_key, "{}")
+
+  use req <- result.try(request)
+  use resp <- result.try(send(req))
+  use body <- result.try(body_as_string(resp.body))
+
+  case resp.status >= 200 && resp.status < 300 {
+    False ->
+      Error(HttpFailure(
+        "Pinecone describe_index_stats status "
+          <> int.to_string(resp.status)
+          <> ": "
+          <> body,
+      ))
+
+    True ->
+      case json.parse(body, using: index_stats_decoder()) {
+        Ok(dimension) -> Ok(dimension)
+        Error(error) -> Error(DecodeFailure(format_decode_error(error)))
+      }
+  }
+}
+
 fn index_host(index: Pinecone) -> String {
   "https://"
     <> index.index
@@ -245,6 +274,11 @@ fn metadata_decoder() -> decode.Decoder(#(String, String, String, String, String
   use turn_index <- decode.optional_field("turn_index", 0, decode.int)
 
   decode.success(#(senator_id, bill_id, summary, content, kind, turn_index))
+}
+
+fn index_stats_decoder() -> decode.Decoder(Int) {
+  use dimension <- decode.field("dimension", decode.int)
+  decode.success(dimension)
 }
 
 fn format_decode_error(error: json.DecodeError) -> String {

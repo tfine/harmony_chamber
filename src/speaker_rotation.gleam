@@ -30,15 +30,22 @@ fn request_rotation(
   roster: List(senators.Senator),
 ) -> Result(List(String), llm_client.LlmError) {
   let prompt = prompts.speaker_rotation_prompt(roster)
-  use body <- result.try(llm_client.call_llm(prompt))
+  use body <- result.try(llm_client.call_llm_with_timeout(prompt, 2500))
   parse_id_list(body)
 }
 
 fn parse_id_list(body: String) -> Result(List(String), llm_client.LlmError) {
-  case json.parse(body, decode.list(decode.string)) {
+  let cleaned = strip_fences(string.trim(body))
+
+  case json.parse(cleaned, decode.list(decode.string)) {
     Ok(ids) -> Ok(ids)
-    Error(error) ->
-      Error(llm_client.DecodeFailure(json_error_to_string(error)))
+    Error(error) -> {
+      // Some models wrap output in prose; attempt a lenient CSV-ish fallback.
+      case fallback_ids(cleaned) {
+        Some(ids) -> Ok(ids)
+        None -> Error(llm_client.DecodeFailure(json_error_to_string(error)))
+      }
+    }
   }
 }
 
@@ -120,6 +127,47 @@ fn deterministic_shuffle(
   |> list.sort(fn(a, b) {
     int.compare(speaker_weight(a.id), speaker_weight(b.id))
   })
+}
+
+fn strip_fences(text: String) -> String {
+  case string.starts_with(text, "```") {
+    False -> text
+    True -> {
+      let without_prefix =
+        text
+        |> string.split("```")
+        |> list.filter(fn(part) { string.length(string.trim(part)) > 0 })
+      case without_prefix {
+        [inner, ..] -> string.trim(inner)
+        [] -> text
+      }
+    }
+  }
+}
+
+fn fallback_ids(text: String) -> Option(List(String)) {
+  let cleaned =
+    text
+    |> string.replace("\n", ",")
+    |> string.replace("[", "")
+    |> string.replace("]", "")
+    |> string.split(",")
+    |> list.map(string.trim)
+    |> list.map(strip_quotes)
+    |> list.filter(fn(part) { string.length(part) > 0 })
+
+  case cleaned {
+    [] -> None
+    _ -> Some(cleaned)
+  }
+}
+
+fn strip_quotes(text: String) -> String {
+  let len = string.length(text)
+  case len >= 2 && string.starts_with(text, "\"") && string.ends_with(text, "\"") {
+    True -> string.slice(text, 1, len - 1)
+    False -> text
+  }
 }
 
 fn speaker_weight(identifier: String) -> Int {

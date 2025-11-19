@@ -2,11 +2,16 @@ import chamber
 import debate
 import gleam/io
 import gleam/list
+import gleam/int
 import gleam/option.{type Option, None, Some}
 import llm_client
 import memory
 import senators
 import session
+import simplifile
+import gleam/bit_array
+import gleam/string
+import gleam/result
 
 /// Advance the session a fixed number of steps with LLM-driven debate.
 /// This centralises the fallback behaviour so both HTTP requests and the
@@ -39,6 +44,27 @@ fn run_steps_loop(
       }
     }
   }
+}
+
+/// Render the full proceedings as text and write to `path`.
+/// Downstream callers should ignore failures (e.g. out-of-disk).
+pub fn publish_proceedings(
+  sess: session.Session,
+  path: String,
+) -> Result(Nil, String) {
+  render_proceedings(sess)
+  |> bit_array.from_string
+  |> fn(bits) { simplifile.write_bits(to: path, bits: bits) }
+  |> result.map_error(file_error_to_string)
+}
+
+/// Suggest a filename for proceedings based on the bill id.
+pub fn default_proceedings_path(sess: session.Session) -> String {
+  let bill_id =
+    sess.bill.id
+    |> string.lowercase
+    |> string.replace(" ", "_")
+  "proceedings_" <> bill_id <> ".txt"
 }
 
 fn apply_fallback_decision(
@@ -101,6 +127,90 @@ fn apply_fallback_decision(
         _ -> updated
       }
     }
+  }
+}
+
+fn render_proceedings(sess: session.Session) -> String {
+  let bill = sess.bill
+  let result_line = case sess.final_result {
+    None -> "Final vote: Not taken"
+    Some(result) -> format_vote_result(result)
+  }
+
+  let turns =
+    sess.debate_turns
+    |> list.map(fn(turn) { format_turn(turn) })
+    |> string.join("\n\n")
+
+  string.join(
+    [
+      "Proceedings for bill " <> bill.id <> ": " <> bill.title,
+      bill.summary,
+      "Status: " <> format_status(sess.status),
+      result_line,
+      "LLM calls: "
+        <> int.to_string(sess.llm_calls_used)
+        <> " / "
+        <> int.to_string(sess.llm_calls_limit),
+      "Turn transcript:",
+      turns,
+    ],
+    "\n\n",
+  )
+}
+
+fn format_turn(turn: debate.DebateTurn) -> String {
+  let label =
+    "Turn "
+      <> int.to_string(turn.turn_index)
+      <> " — "
+      <> turn.senator.name
+      <> " ("
+      <> turn.senator.state
+      <> ")"
+
+  let intent = debate.vote_intent_label(turn.vote_intent)
+  let procedure = debate.procedure_label(turn.procedure)
+
+  string.join(
+    [
+      label,
+      "Intent: " <> intent <> "; Procedure: " <> procedure <> "; Purpose: " <> turn.purpose,
+      turn.speech,
+    ],
+    "\n",
+  )
+}
+
+fn format_status(status: session.SessionStatus) -> String {
+  case status {
+    session.InDebate -> "In debate"
+    session.Voting(_) -> "Voting"
+    session.Closed -> "Closed"
+  }
+}
+
+fn format_vote_result(result: session.VoteResult) -> String {
+  let session.VoteResult(tally: tally, passed: passed) = result
+  let session.VoteTally(yea: yea, nay: nay, abstain: abstain) = tally
+
+  "Yea "
+    <> int.to_string(yea)
+    <> ", Nay "
+    <> int.to_string(nay)
+    <> ", Abstain "
+    <> int.to_string(abstain)
+    <> " — Passed: "
+    <> case passed {
+      True -> "Yes"
+      False -> "No"
+    }
+}
+
+fn file_error_to_string(error: simplifile.FileError) -> String {
+  case error {
+    simplifile.Enoent -> "not_found"
+    _ -> string.inspect(error)
   }
 }
 

@@ -1,4 +1,6 @@
 
+// Vector-backed recall layer for debate context. Stores embeddings of past
+// turns and retrieves them to ground future LLM calls.
 import debate
 import gleam/int
 import gleam/json
@@ -39,6 +41,8 @@ pub fn init() -> Memory {
     Error(error) -> Disabled(vector_error_to_string(error))
   }
 }
+
+// Future: tie Memory to agent intentions/plans so retrieval uses both role and goal.
 
 pub fn enabled(memory: Memory) -> Bool {
   case memory {

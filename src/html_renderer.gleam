@@ -776,9 +776,7 @@ fn render_debate_log(
     <> int.to_string(pagination.current_page)
     <> " of "
     <> int.to_string(pagination.total_pages)
-    <> " ("
-    <> int.to_string(pagination.per_page)
-    <> " per page)."
+    <> ". Speeches are presented in full-width blocks for emphasis."
 
   let top_controls =
     render_pagination_controls(
@@ -1106,12 +1104,12 @@ fn render_turn_card(turn: debate.DebateTurn) -> String {
      <div class=\"turn-meta\">
        <span class=\"turn-index\">Turn #" <> int.to_string(turn.turn_index) <> "</span>
        <span class=\"turn-senator\">" <> senator_link <> "</span>
-       <span class=\"turn-vote\">" <> escape_html(debate.vote_intent_label(
-    turn.vote_intent,
-  )) <> "</span>
+        <span class=\"turn-vote\">Intent: " <> escape_html(debate.vote_intent_label(
+  turn.vote_intent,
+)) <> "</span>
      </div>
      " <> render_turn_tags(turn) <> "
-     <div class=\"turn-text\">" <> format_speech(turn.speech) <> "</div>
+     <div class=\"turn-text full-width\">" <> format_speech(turn.speech) <> "</div>
    </article>"
 }
 
@@ -2208,6 +2206,17 @@ fn stylesheet() -> String {
   .turn-text p {
     margin: 0 0 0.6rem;
     line-height: 1.55;
+  }
+
+  .turn-text.full-width {
+    width: 100%;
+    display: block;
+    padding: 1rem 0.25rem;
+  }
+
+  .turn-text.full-width p {
+    font-size: 1.05rem;
+    line-height: 1.7;
   }
 
   .turn-tags {
