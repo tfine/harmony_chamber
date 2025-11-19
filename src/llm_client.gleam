@@ -154,6 +154,7 @@ fn load_config() -> Result(Config, LlmError) {
 
 fn completion_once(prompt: String, config: Config) -> Result(String, LlmError) {
   maybe_rate_limit()
+  io.println("call_llm: sending system/user prompt with length=" <> int.to_string(string.length(prompt)))
 
   let payload = build_payload(prompt, config.model)
   let url = normalise_base(config.api_base) <> "/chat/completions"
@@ -188,6 +189,7 @@ fn completion_once(prompt: String, config: Config) -> Result(String, LlmError) {
     True -> {
       use #(content, usage) <- result.try(decode_completion(body))
       log_completion_usage(usage)
+      io.println("call_llm: success")
       Ok(content)
     }
     False ->
@@ -199,6 +201,7 @@ fn completion_once(prompt: String, config: Config) -> Result(String, LlmError) {
 
 fn embed_once(text: String, config: Config, model: String) -> Result(List(Float), LlmError) {
   maybe_rate_limit()
+  io.println("embed call len=" <> int.to_string(string.length(text)))
 
   let payload = embedding_payload(text, model)
   let url = normalise_base(config.api_base) <> "/embeddings"
@@ -233,6 +236,7 @@ fn embed_once(text: String, config: Config, model: String) -> Result(List(Float)
     True -> {
       use #(vector, usage) <- result.try(decode_embedding(body))
       log_embedding_usage(usage)
+      io.println("embed call success")
       Ok(vector)
     }
     False ->

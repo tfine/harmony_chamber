@@ -3,6 +3,7 @@ import debate
 import envoy
 import gleam/erlang/process
 import gleam/int
+import gleam/io
 import gleam/list
 import intentions
 import llm_client
@@ -68,6 +69,13 @@ pub fn request_decision(
   case process.receive(reply, decision_timeout_ms()) {
     Ok(result) -> result
     Error(Nil) -> {
+      io.println(
+        "Senator "
+          <> proc.id
+          <> " timed out after "
+          <> int.to_string(decision_timeout_ms())
+          <> "ms",
+      )
       let _ =
         process.spawn(fn() {
           case process.receive_forever(reply) {
