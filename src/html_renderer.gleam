@@ -1,7 +1,7 @@
 import debate
 import gleam/int
-import gleam/list
 import gleam/json
+import gleam/list
 import gleam/option.{type Option, None, Some, unwrap}
 import gleam/string
 import office
@@ -10,6 +10,7 @@ import session
 import theme
 
 const debate_turns_per_page = 10
+
 const transcript_page_shortcuts = [
   1,
   2,
@@ -58,7 +59,13 @@ pub fn render_session_page(
   current_theme: theme.Theme,
   query_params: List(#(String, String)),
 ) -> String {
-  live_fragments(sess, senators_list, autopilot_running, current_theme, query_params)
+  live_fragments(
+    sess,
+    senators_list,
+    autopilot_running,
+    current_theme,
+    query_params,
+  )
   |> render_session_page_from_fragments(current_theme)
 }
 
@@ -74,11 +81,10 @@ pub fn render_session_page_from_fragments(
     True -> vote_block <> debate_block
     False -> debate_block <> vote_block
   }
-  let ordered_panels =
-    case fragments.amendment_considered {
-      True -> [fragments.bill, fragments.amendment, vote_debate_block]
-      False -> [fragments.bill, vote_debate_block, fragments.amendment]
-    }
+  let ordered_panels = case fragments.amendment_considered {
+    True -> [fragments.bill, fragments.amendment, vote_debate_block]
+    False -> [fragments.bill, vote_debate_block, fragments.amendment]
+  }
   let main_section = ordered_panels |> string.join("\n          ")
 
   "<!doctype html>
@@ -122,12 +128,11 @@ pub fn live_fragments(
   let pending_amendment =
     sess.amendments
     |> list.any(fn(amendment) { amendment.status == session.Pending })
-  let amendment_considered =
-    case sess.status {
-      session.Voting(session.AmendmentVote(_)) -> True
-      session.InDebate -> pending_amendment
-      _ -> False
-    }
+  let amendment_considered = case sess.status {
+    session.Voting(session.AmendmentVote(_)) -> True
+    session.InDebate -> pending_amendment
+    _ -> False
+  }
 
   LiveFragments(
     hero: hero,
@@ -137,7 +142,10 @@ pub fn live_fragments(
     amendment: amendment_section,
     roster: roster_section,
     alert: error_section,
-    vote_active: case sess.status { session.Voting(_) -> True _ -> False },
+    vote_active: case sess.status {
+      session.Voting(_) -> True
+      _ -> False
+    },
     amendment_considered: amendment_considered,
   )
 }
@@ -270,35 +278,25 @@ pub fn render_senators_index_page(
        <meta charset=\"utf-8\" />
        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
        <title>Senators | Harmony Chamber</title>
-       <style>"
-    <> stylesheet()
-    <> "</style>
+       <style>" <> stylesheet() <> "</style>
      </head>
-     <body class=\""
-    <> body_class
-    <> "\">
+     <body class=\"" <> body_class <> "\">
        <div class=\"page\">
          <header class=\"hero\">
            <div>
              <p class=\"eyebrow\">Harmony Chamber</p>
              <h1>Senators</h1>
              <nav class=\"nav-links\">
-               "
-    <> nav_links
-    <> "
+               " <> nav_links <> "
              </nav>
              <p class=\"hero-summary\">
                Explore each senator’s priorities, most recent remarks, and constituent notes.
              </p>
-             "
-    <> theme_switcher
-    <> "
+             " <> theme_switcher <> "
            </div>
          </header>
          <main class=\"grid\">
-           "
-    <> cards
-    <> "
+           " <> cards <> "
          </main>
        </div>
      </body>
@@ -315,12 +313,12 @@ pub fn render_senator_profile_page(
 ) -> String {
   let body_class = theme.body_class(current_theme)
   let nav_links = render_nav_links(current_theme)
-  let theme_switcher = render_theme_switcher(current_theme, "/senators/" <> senator.id)
+  let theme_switcher =
+    render_theme_switcher(current_theme, "/senators/" <> senator.id)
   let intentions_panel = render_intentions_panel(intentions)
   let mailbox_panel = render_mailbox_panel(senator, notes)
   let blog_panel = render_statement_blog(posts, sess.bill)
-  let bill_panel =
-    "<section class=\"panel\">
+  let bill_panel = "<section class=\"panel\">
        <h2>Current Bill</h2>
        <p class=\"eyebrow\">" <> sess.bill.id <> "</p>
        <h3>" <> escape_html(sess.bill.title) <> "</h3>
@@ -332,49 +330,25 @@ pub fn render_senator_profile_page(
      <head>
        <meta charset=\"utf-8\" />
        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-       <title>"
-    <> senator.name
-    <> " | Harmony Chamber</title>
-       <style>"
-    <> stylesheet()
-    <> "</style>
+       <title>" <> senator.name <> " | Harmony Chamber</title>
+       <style>" <> stylesheet() <> "</style>
      </head>
-     <body class=\""
-    <> body_class
-    <> "\">
+     <body class=\"" <> body_class <> "\">
        <div class=\"page\">
          <header class=\"hero\">
            <div>
              <p class=\"eyebrow\">Senator Profile</p>
-             <h1>"
-    <> senator.name
-    <> " ("
-    <> senator.state
-    <> ")</h1>
-             <nav class=\"nav-links\">"
-    <> nav_links
-    <> "</nav>
-             <p class=\"hero-summary\">"
-    <> senator.biography
-    <> "</p>
-             "
-    <> theme_switcher
-    <> "
+             <h1>" <> senator.name <> " (" <> senator.state <> ")</h1>
+             <nav class=\"nav-links\">" <> nav_links <> "</nav>
+             <p class=\"hero-summary\">" <> senator.biography <> "</p>
+             " <> theme_switcher <> "
            </div>
          </header>
          <main class=\"grid\">
-           "
-    <> intentions_panel
-    <> "
-           "
-    <> mailbox_panel
-    <> "
-           "
-    <> bill_panel
-    <> "
-           "
-    <> blog_panel
-    <> "
+           " <> intentions_panel <> "
+           " <> mailbox_panel <> "
+           " <> bill_panel <> "
+           " <> blog_panel <> "
          </main>
        </div>
      </body>
@@ -392,9 +366,19 @@ fn render_hero(
   let autopilot_controls =
     render_autopilot_controls(sess, autopilot_running, current_theme)
 
-  "<header class=\"hero\" id=\"hero-header\">\n     <div>\n       <p class=\"eyebrow\">Harmony Chamber</p>\n       <div class=\"hero-top\">\n         <h1>Live Senate Simulation</h1>\n         <span class=\"pill live-pill\" id=\"live-badge\">Live</span>\n       </div>\n       <nav class=\"nav-links\">\n         " <> nav_links <> "\n       </nav>\n       <p class=\"hero-summary\">\n         Live session generated by Gleam/BEAM + OpenAI agents.\n       </p>\n       <p>\n         LLM calls used: " <> int.to_string(sess.llm_calls_used) <> " / " <> int.to_string(
-    sess.llm_calls_limit,
-  ) <> "\n       </p>\n       " <> status_line <> "\n       <div class=\"live-meta\">\n         <span class=\"pill ghost-pill\">Server-rendered updates</span>\n         <span class=\"pill ghost-pill\">Auto-sync ~3s</span>\n       </div>\n       " <> autopilot_controls <> "\n       " <> theme_switcher <> "\n     </div>\n   </header>"
+  "<header class=\"hero\" id=\"hero-header\">\n     <div>\n       <p class=\"eyebrow\">Harmony Chamber</p>\n       <div class=\"hero-top\">\n         <h1>Live Senate Simulation</h1>\n         <span class=\"pill live-pill\" id=\"live-badge\">Live</span>\n       </div>\n       <nav class=\"nav-links\">\n         "
+  <> nav_links
+  <> "\n       </nav>\n       <p class=\"hero-summary\">\n         Live session generated by Gleam/BEAM + OpenAI agents.\n       </p>\n       <p>\n         LLM calls used: "
+  <> int.to_string(sess.llm_calls_used)
+  <> " / "
+  <> int.to_string(sess.llm_calls_limit)
+  <> "\n       </p>\n       "
+  <> status_line
+  <> "\n       <div class=\"live-meta\">\n         <span class=\"pill ghost-pill\">Server-rendered updates</span>\n         <span class=\"pill ghost-pill\">Auto-sync ~3s</span>\n       </div>\n       "
+  <> autopilot_controls
+  <> "\n       "
+  <> theme_switcher
+  <> "\n     </div>\n   </header>"
 }
 
 fn render_bill(bill: session.Bill) -> String {
@@ -412,11 +396,10 @@ fn render_live_vote_panel(
   senators_list: List(senators.Senator),
   query_params: List(#(String, String)),
 ) -> String {
-  let active_vote =
-    case sess.status {
-      session.Voting(focus) -> Some(focus)
-      _ -> None
-    }
+  let active_vote = case sess.status {
+    session.Voting(focus) -> Some(focus)
+    _ -> None
+  }
 
   let tally = session.vote_progress(sess)
   let total_members = list.length(senators_list)
@@ -468,8 +451,9 @@ fn vote_focus_label(focus: Option(session.VoteFocus)) -> String {
     Some(session.BillVote) ->
       "Final vote on the bill text. Simple majority decides."
     Some(session.AmendmentVote(id)) ->
-      "Vote on amendment " <> int.to_string(id)
-        <> " — winner rewrites the bill summary."
+      "Vote on amendment "
+      <> int.to_string(id)
+      <> " — winner rewrites the bill summary."
   }
 }
 
@@ -499,22 +483,22 @@ fn vote_summary_line(
   case sess.status {
     session.Voting(_) ->
       "Called votes: "
-        <> int.to_string(yea)
-        <> " yea / "
-        <> int.to_string(nay)
-        <> " nay / "
-        <> int.to_string(abstain)
-        <> " abstain. "
-        <> int.to_string(remaining_floor)
-        <> " still on the board, including "
-        <> int.to_string(list.length(outstanding))
-        <> " without any intent on record."
-    session.Closed -> "Vote closed. " <> format_result_summary(
-      unwrap(sess.final_result, session.VoteResult(
-        tally: tally,
-        passed: yea > nay,
-      )),
-    )
+      <> int.to_string(yea)
+      <> " yea / "
+      <> int.to_string(nay)
+      <> " nay / "
+      <> int.to_string(abstain)
+      <> " abstain. "
+      <> int.to_string(remaining_floor)
+      <> " still on the board, including "
+      <> int.to_string(list.length(outstanding))
+      <> " without any intent on record."
+    session.Closed ->
+      "Vote closed. "
+      <> format_result_summary(unwrap(
+        sess.final_result,
+        session.VoteResult(tally: tally, passed: yea > nay),
+      ))
     session.InDebate ->
       "Debate in play — no ballots yet. Signals and procedures shape the next move."
   }
@@ -531,14 +515,21 @@ fn render_vote_stats(
   let outstanding_count = list.length(outstanding)
   let needed = majority_threshold(total_members)
 
-  "<div class=\"vote-stats\">\n     " <> stat_pill("Needed to pass", int.to_string(needed) <> " yea") <> "\n     " <> stat_pill("Outstanding", int.to_string(remaining) <> " senators") <> "\n     " <> stat_pill("No intent logged", int.to_string(outstanding_count)) <> "\n   </div>"
+  "<div class=\"vote-stats\">\n     "
+  <> stat_pill("Needed to pass", int.to_string(needed) <> " yea")
+  <> "\n     "
+  <> stat_pill("Outstanding", int.to_string(remaining) <> " senators")
+  <> "\n     "
+  <> stat_pill("No intent logged", int.to_string(outstanding_count))
+  <> "\n   </div>"
 }
 
 fn stat_pill(label: String, value: String) -> String {
-  "<span class=\"pill stat-pill\"><strong>" <> escape_html(label)
-    <> ":</strong> "
-    <> escape_html(value)
-    <> "</span>"
+  "<span class=\"pill stat-pill\"><strong>"
+  <> escape_html(label)
+  <> ":</strong> "
+  <> escape_html(value)
+  <> "</span>"
 }
 
 fn render_senator_vote_card(
@@ -554,12 +545,24 @@ fn render_senator_vote_card(
   }
   let anchor_id = senator_anchor_id(senator)
 
-  "<article class=\"card vote-card " <> intent_class <> "\" id=\"" <> anchor_id <> "\">
+  "<article class=\"card vote-card "
+  <> intent_class
+  <> "\" id=\""
+  <> anchor_id
+  <> "\">
      <div class=\"vote-card-header\">
-       <h3>" <> escape_html(senator.name) <> "</h3>
-       <span class=\"pill intent-pill " <> intent_class <> "\">" <> intent_label <> "</span>
+       <h3>"
+  <> escape_html(senator.name)
+  <> "</h3>
+       <span class=\"pill intent-pill "
+  <> intent_class
+  <> "\">"
+  <> intent_label
+  <> "</span>
      </div>
-     <p class=\"vote-card-sub\">" <> escape_html(senator.state) <> "</p>
+     <p class=\"vote-card-sub\">"
+  <> escape_html(senator.state)
+  <> "</p>
    </article>"
 }
 
@@ -583,10 +586,7 @@ fn non_negative(value: Int) -> Int {
   }
 }
 
-fn render_vote_bars(
-  tally: session.VoteTally,
-  total_members: Int,
-) -> String {
+fn render_vote_bars(tally: session.VoteTally, total_members: Int) -> String {
   let session.VoteTally(yea: yea, nay: nay, abstain: abstain) = tally
 
   let bar_total = case total_members <= 0 {
@@ -612,9 +612,9 @@ fn vote_bar(label: String, count: Int, width: Int, class_name: String) -> String
        <strong>" <> int.to_string(count) <> "</strong>
      </div>
      <div class=\"vote-bar-track\">
-       <span class=\"vote-bar-fill " <> class_name <> "\" style=\"width: "
-    <> int.to_string(width)
-    <> "%\"></span>
+       <span class=\"vote-bar-fill " <> class_name <> "\" style=\"width: " <> int.to_string(
+    width,
+  ) <> "%\"></span>
      </div>
    </div>"
 }
@@ -632,10 +632,7 @@ fn vote_percent(part: Int, total: Int) -> Int {
   }
 }
 
-fn render_drama_toggle(
-  params: List(#(String, String)),
-  enabled: Bool,
-) -> String {
+fn render_drama_toggle(params: List(#(String, String)), enabled: Bool) -> String {
   let toggled_params = case enabled {
     True -> remove_query_param(params, "drama")
     False -> set_query_param(params, "drama", "1")
@@ -676,20 +673,10 @@ fn render_debate_log(
     <> ". Speeches are presented in full-width blocks for emphasis."
 
   let top_controls =
-    render_pagination_controls(
-      pagination,
-      base_query,
-      False,
-      False,
-    )
+    render_pagination_controls(pagination, base_query, False, False)
 
   let bottom_controls =
-    render_pagination_controls(
-      pagination,
-      base_query,
-      True,
-      True,
-    )
+    render_pagination_controls(pagination, base_query, True, True)
 
   "<section class=\"panel transcript-panel\" id=\"debate-panel\">
      <div class=\"panel-header\">
@@ -712,7 +699,8 @@ fn render_pagination_controls(
     0 -> ""
     _ -> {
       let targets = case include_numbers {
-        True -> pagination_targets(pagination.total_pages, pagination.current_page)
+        True ->
+          pagination_targets(pagination.total_pages, pagination.current_page)
         False -> []
       }
 
@@ -745,12 +733,12 @@ fn render_pagination_controls(
         False -> ""
         True ->
           "<p class=\"pagination-summary\">Showing "
-            <> int.to_string(start_turn)
-            <> "–"
-            <> int.to_string(end_turn)
-            <> " of "
-            <> int.to_string(pagination.total_turns)
-            <> " speeches</p>"
+          <> int.to_string(start_turn)
+          <> "–"
+          <> int.to_string(end_turn)
+          <> " of "
+          <> int.to_string(pagination.total_turns)
+          <> " speeches</p>"
       }
 
       let compact_class = case include_numbers {
@@ -759,14 +747,16 @@ fn render_pagination_controls(
       }
 
       "<div class=\"pagination"
-        <> compact_class
-        <> "\" aria-label=\"Debate transcript pages\">
+      <> compact_class
+      <> "\" aria-label=\"Debate transcript pages\">
          <div class=\"pagination-links\">"
-        <> previous
-        <> numbered
-        <> next
-        <> "</div>
-         " <> summary <> "
+      <> previous
+      <> numbered
+      <> next
+      <> "</div>
+         "
+      <> summary
+      <> "
        </div>"
     }
   }
@@ -777,17 +767,15 @@ fn pagination_targets(total_pages: Int, current_page: Int) -> List(Int) {
     transcript_page_shortcuts
     |> list.filter(fn(page) { page <= total_pages })
 
-  let with_current =
-    case list.contains(shortcuts, current_page) {
-      True -> shortcuts
-      False -> [current_page, ..shortcuts]
-    }
+  let with_current = case list.contains(shortcuts, current_page) {
+    True -> shortcuts
+    False -> [current_page, ..shortcuts]
+  }
 
-  let with_last =
-    case list.contains(with_current, total_pages) {
-      True -> with_current
-      False -> [total_pages, ..with_current]
-    }
+  let with_last = case list.contains(with_current, total_pages) {
+    True -> with_current
+    False -> [total_pages, ..with_current]
+  }
 
   with_last |> list.sort(int.compare)
 }
@@ -798,15 +786,18 @@ fn render_page_link(
   query_params: List(#(String, String)),
 ) -> String {
   let href = page_href(page, query_params)
-  let class_name =
-    case page == current_page {
-      True -> "page-link is-active"
-      False -> "page-link"
-    }
+  let class_name = case page == current_page {
+    True -> "page-link is-active"
+    False -> "page-link"
+  }
 
-  "<a class=\"" <> class_name <> "\" href=\"" <> href <> "\">" <> int.to_string(
-    page,
-  ) <> "</a>"
+  "<a class=\""
+  <> class_name
+  <> "\" href=\""
+  <> href
+  <> "\">"
+  <> int.to_string(page)
+  <> "</a>"
 }
 
 fn render_page_nav_link(
@@ -818,10 +809,11 @@ fn render_page_nav_link(
   case enabled {
     False -> "<span class=\"page-link is-disabled\">" <> label <> "</span>"
     True ->
-      "<a class=\"page-link\" href=\"" <> page_href(target_page, query_params)
-        <> "\">"
-        <> label
-        <> "</a>"
+      "<a class=\"page-link\" href=\""
+      <> page_href(target_page, query_params)
+      <> "\">"
+      <> label
+      <> "</a>"
   }
 }
 
@@ -914,17 +906,16 @@ fn debate_pagination(
   query_params: List(#(String, String)),
 ) -> DebatePagination {
   let total_turns = list.length(turns)
-  let total_pages =
-    case total_turns {
-      0 -> 1
-      _ -> {
-        let numerator = total_turns + debate_turns_per_page - 1
-        case int.divide(numerator, by: debate_turns_per_page) {
-          Ok(value) -> value
-          Error(Nil) -> 1
-        }
+  let total_pages = case total_turns {
+    0 -> 1
+    _ -> {
+      let numerator = total_turns + debate_turns_per_page - 1
+      case int.divide(numerator, by: debate_turns_per_page) {
+        Ok(value) -> value
+        Error(Nil) -> 1
       }
     }
+  }
 
   let requested_page = query_page_param(query_params)
   let current_page = clamp_page(requested_page, total_pages)
@@ -971,11 +962,10 @@ fn find_query_int(params: List(#(String, String)), key: String) -> Option(Int) {
 }
 
 fn clamp_page(requested: Int, total_pages: Int) -> Int {
-  let at_least_one =
-    case requested < 1 {
-      True -> 1
-      False -> requested
-    }
+  let at_least_one = case requested < 1 {
+    True -> 1
+    False -> requested
+  }
 
   case at_least_one > total_pages {
     True -> total_pages
@@ -1001,9 +991,9 @@ fn render_turn_card(turn: debate.DebateTurn) -> String {
      <div class=\"turn-meta\">
        <span class=\"turn-index\">Turn #" <> int.to_string(turn.turn_index) <> "</span>
        <span class=\"turn-senator\">" <> senator_link <> "</span>
-        <span class=\"turn-vote\">Intent: " <> escape_html(debate.vote_intent_label(
-  turn.vote_intent,
-)) <> "</span>
+        <span class=\"turn-vote\">Intent: " <> escape_html(
+    debate.vote_intent_label(turn.vote_intent),
+  ) <> "</span>
      </div>
      " <> render_turn_tags(turn) <> "
      <div class=\"turn-text full-width\">" <> format_speech(turn.speech) <> "</div>
@@ -1013,20 +1003,19 @@ fn render_turn_card(turn: debate.DebateTurn) -> String {
 fn render_turn_tags(turn: debate.DebateTurn) -> String {
   let purpose = string.trim(turn.purpose)
 
-  let purpose_tag =
-    case purpose {
-      "" -> ""
-      _ -> "<span class=\"pill tag\">Purpose: " <> escape_html(purpose) <> "</span>"
-    }
+  let purpose_tag = case purpose {
+    "" -> ""
+    _ ->
+      "<span class=\"pill tag\">Purpose: " <> escape_html(purpose) <> "</span>"
+  }
 
-  let procedure_tag =
-    case turn.procedure {
-      debate.NoProcedure -> ""
-      _ ->
-        "<span class=\"pill tag\">Procedure: " <> escape_html(
-          debate.procedure_label(turn.procedure),
-        ) <> "</span>"
-    }
+  let procedure_tag = case turn.procedure {
+    debate.NoProcedure -> ""
+    _ ->
+      "<span class=\"pill tag\">Procedure: "
+      <> escape_html(debate.procedure_label(turn.procedure))
+      <> "</span>"
+  }
 
   let tags =
     [purpose_tag, procedure_tag]
@@ -1064,9 +1053,9 @@ fn render_amendment_card(amendment: session.Amendment) -> String {
   let vote_summary = case amendment.vote_result {
     None -> ""
     Some(result) ->
-      "<p class=\"amendment-vote\">Vote: " <> escape_html(
-        format_result_summary(result),
-      ) <> "</p>"
+      "<p class=\"amendment-vote\">Vote: "
+      <> escape_html(format_result_summary(result))
+      <> "</p>"
   }
 
   "<article class=\"card amendment-card\">
@@ -1094,7 +1083,9 @@ fn render_roster(
       }
 
       "<article class=\"card senator-card\" id=\"" <> anchor_id <> "\">
-         <h3>" <> escape_html(senator.name) <> "</h3>
+         <h3><a href=\"" <> escape_html(senator_profile_href(senator)) <> "\" target=\"_blank\" rel=\"noopener\">" <> escape_html(
+        senator.name,
+      ) <> "</a></h3>
          <p class=\"senator-meta\">" <> escape_html(senator.state) <> " &middot; Vote intent: " <> escape_html(
         debate.vote_intent_label(intent),
       ) <> "</p>
@@ -1128,23 +1119,21 @@ fn render_error_banner(error: Option(String)) -> String {
 fn render_status_line(sess: session.Session) -> String {
   let label = status_label(sess.status)
 
-  let result_text =
-    case sess.final_result {
-      None -> ""
-      Some(result) -> "Result: " <> format_result_summary(result)
-    }
+  let result_text = case sess.final_result {
+    None -> ""
+    Some(result) -> "Result: " <> format_result_summary(result)
+  }
 
-  let note =
-    case sess.status {
-      session.Closed ->
-        "Deliberations closed. No further LLM calls will be made for this bill."
-      session.Voting(session.BillVote) ->
-        "Voting on the bill text is in progress. Tallies will finalize shortly."
-      session.Voting(session.AmendmentVote(id)) ->
-        "Voting on amendment " <> int.to_string(id) <> " is underway."
-      session.InDebate ->
-        "Debate in progress. Senators speak selectively with purpose."
-    }
+  let note = case sess.status {
+    session.Closed ->
+      "Deliberations closed. No further LLM calls will be made for this bill."
+    session.Voting(session.BillVote) ->
+      "Voting on the bill text is in progress. Tallies will finalize shortly."
+    session.Voting(session.AmendmentVote(id)) ->
+      "Voting on amendment " <> int.to_string(id) <> " is underway."
+    session.InDebate ->
+      "Debate in progress. Senators speak selectively with purpose."
+  }
 
   let details =
     [result_text, note]
@@ -1153,10 +1142,10 @@ fn render_status_line(sess: session.Session) -> String {
     |> string.join(" · ")
 
   "<p class=\"status-line\"><span class=\"pill status-pill\">"
-    <> escape_html(label)
-    <> "</span> <span class=\"status-detail\">"
-    <> details
-    <> "</span></p>"
+  <> escape_html(label)
+  <> "</span> <span class=\"status-detail\">"
+  <> details
+  <> "</span></p>"
 }
 
 fn status_label(status: session.SessionStatus) -> String {
@@ -1180,11 +1169,11 @@ fn render_nav_links(current_theme: theme.Theme) -> String {
 
 fn nav_link(path: String, label: String, current_theme: theme.Theme) -> String {
   "<a href=\""
-    <> path
-    <> theme.query_suffix(current_theme)
-    <> "\">"
-    <> label
-    <> "</a>"
+  <> path
+  <> theme.query_suffix(current_theme)
+  <> "\">"
+  <> label
+  <> "</a>"
 }
 
 fn render_theme_switcher(
@@ -1195,15 +1184,18 @@ fn render_theme_switcher(
     theme.available()
     |> list.map(fn(option) {
       let active = option == current_theme
-      let href =
-        case theme.query_suffix(option) {
-          "" -> base_path
-          suffix -> base_path <> suffix
-        }
+      let href = case theme.query_suffix(option) {
+        "" -> base_path
+        suffix -> base_path <> suffix
+      }
 
-      "<a class=\"" <> theme_button_class(active) <> "\" href=\"" <> href <> "\">" <> theme.label(
-        option,
-      ) <> "</a>"
+      "<a class=\""
+      <> theme_button_class(active)
+      <> "\" href=\""
+      <> href
+      <> "\">"
+      <> theme.label(option)
+      <> "</a>"
     })
     |> string.join("")
 
@@ -1221,18 +1213,19 @@ fn theme_button_class(active: Bool) -> String {
 }
 
 fn senator_inline_link(senator: senators.Senator) -> String {
-  let href = senator_anchor_href(senator)
+  let href = escape_html(senator_profile_href(senator))
   let label =
-    escape_html(senator.name)
-      <> " ("
-      <> escape_html(senator.state)
-      <> ")"
+    escape_html(senator.name) <> " (" <> escape_html(senator.state) <> ")"
 
-  "<a class=\"senator-link\" href=\"" <> href <> "\">" <> label <> "</a>"
+  "<a class=\"senator-link\" href=\""
+  <> href
+  <> "\" target=\"_blank\" rel=\"noopener\">"
+  <> label
+  <> "</a>"
 }
 
-fn senator_anchor_href(senator: senators.Senator) -> String {
-  "#" <> senator_anchor_id(senator)
+fn senator_profile_href(senator: senators.Senator) -> String {
+  "/senators/" <> senator.id
 }
 
 fn senator_anchor_id(senator: senators.Senator) -> String {
@@ -1252,11 +1245,14 @@ fn clean_anchor_fragment(raw: String) -> String {
 }
 
 fn is_anchor_char(code: Int) -> Bool {
-  code >= 48 && code <= 57
-    || code >= 65 && code <= 90
-    || code >= 97 && code <= 122
-    || code == 45
-    || code == 95
+  code >= 48
+  && code <= 57
+  || code >= 65
+  && code <= 90
+  || code >= 97
+  && code <= 122
+  || code == 45
+  || code == 95
 }
 
 fn render_autopilot_controls(
@@ -1265,12 +1261,11 @@ fn render_autopilot_controls(
   current_theme: theme.Theme,
 ) -> String {
   let #(action, label, note) = case running {
-    True ->
-      #(
-        "pause",
-        "Pause Simulation",
-        "Simulation is advancing automatically. Pause if you need a moment to review.",
-      )
+    True -> #(
+      "pause",
+      "Pause Simulation",
+      "Simulation is advancing automatically. Pause if you need a moment to review.",
+    )
     False -> {
       let started = session_has_started(sess)
       #(
@@ -1281,7 +1276,8 @@ fn render_autopilot_controls(
         },
         case started {
           True -> "Simulation paused — resume when you're ready for more turns."
-          False -> "Simulation is staged. Start it to generate the first speeches."
+          False ->
+            "Simulation is staged. Start it to generate the first speeches."
         },
       )
     }
@@ -1353,12 +1349,9 @@ fn format_amendment_status(status: session.AmendmentStatus) -> String {
   }
 }
 
-fn render_completed_bills(
-  bills: List(session.CompletedBill),
-) -> String {
+fn render_completed_bills(bills: List(session.CompletedBill)) -> String {
   let body = case bills {
-    [] ->
-      "<p>No completed votes yet. The first bill is still in progress.</p>"
+    [] -> "<p>No completed votes yet. The first bill is still in progress.</p>"
     _ ->
       bills
       |> list.map(render_completed_card)
@@ -1375,11 +1368,10 @@ fn render_completed_bills(
 }
 
 fn render_completed_card(record: session.CompletedBill) -> String {
-  let summary =
-    case record.result {
-      None -> "Awaiting final vote"
-      Some(result) -> format_result_summary(result)
-    }
+  let summary = case record.result {
+    None -> "Awaiting final vote"
+    Some(result) -> format_result_summary(result)
+  }
 
   let amendment_list = render_amendment_history(record.amendments)
 
@@ -1394,11 +1386,10 @@ fn render_completed_card(record: session.CompletedBill) -> String {
 }
 
 fn render_history_card(record: session.CompletedBill) -> String {
-  let summary =
-    case record.result {
-      None -> "No final vote recorded"
-      Some(result) -> format_result_summary(result)
-    }
+  let summary = case record.result {
+    None -> "No final vote recorded"
+    Some(result) -> format_result_summary(result)
+  }
 
   let amendment_list = render_amendment_history(record.amendments)
 
@@ -1422,13 +1413,15 @@ fn render_amendment_history(amendments: List(session.Amendment)) -> String {
     _ ->
       amendments
       |> list.map(fn(amendment) {
-        "<li><strong>" <> senator_inline_link(amendment.proposer) <> "</strong>: "
-          <> escape_html(format_amendment_status(amendment.status))
-          <> case amendment.vote_result {
-            None -> ""
-            Some(result) -> " — " <> escape_html(format_result_summary(result))
-          }
-          <> "</li>"
+        "<li><strong>"
+        <> senator_inline_link(amendment.proposer)
+        <> "</strong>: "
+        <> escape_html(format_amendment_status(amendment.status))
+        <> case amendment.vote_result {
+          None -> ""
+          Some(result) -> " — " <> escape_html(format_result_summary(result))
+        }
+        <> "</li>"
       })
       |> string.join("")
       |> fn(items) { "<ul>" <> items <> "</ul>" }
@@ -1441,13 +1434,11 @@ fn render_upcoming_bills(
 ) -> String {
   let upcoming_cards =
     upcoming
-    |> list.map(fn(bill) {
-      "<article class=\"card senator-card\">
+    |> list.map(fn(bill) { "<article class=\"card senator-card\">
          <h3>" <> escape_html(bill.title) <> "</h3>
          <p class=\"bill-id\">Bill " <> escape_html(bill.id) <> "</p>
          <p>" <> escape_html(bill.summary) <> "</p>
-       </article>"
-    })
+       </article>" })
     |> string.join("")
 
   "<section class=\"panel bill-panel\">
@@ -1473,44 +1464,38 @@ fn format_result_summary(result: session.VoteResult) -> String {
   }
 
   verdict
-    <> " "
-    <> int.to_string(yea)
-    <> "-"
-    <> int.to_string(nay)
-    <> abstain_suffix
+  <> " "
+  <> int.to_string(yea)
+  <> "-"
+  <> int.to_string(nay)
+  <> abstain_suffix
 }
 
 fn render_senator_card(
   senator: senators.Senator,
   sess: session.Session,
 ) -> String {
-  let intent =
-    case session.vote_intent_for(sess, senator.id) {
-      Some(value) -> value
-      None -> debate.Undecided
-    }
-  let justification =
-    case latest_turn_for(senator.id, sess.debate_turns) {
-      None -> ""
-      Some(turn) ->
-        "<p class=\"senator-meta\"><strong>Latest speech:</strong> "
-          <> escape_html(trim_text(turn.speech))
-          <> "</p>"
-    }
+  let intent = case session.vote_intent_for(sess, senator.id) {
+    Some(value) -> value
+    None -> debate.Undecided
+  }
+  let justification = case latest_turn_for(senator.id, sess.debate_turns) {
+    None -> ""
+    Some(turn) ->
+      "<p class=\"senator-meta\"><strong>Latest speech:</strong> "
+      <> escape_html(trim_text(turn.speech))
+      <> "</p>"
+  }
 
   "<section class=\"panel senator-card\">
-     <p class=\"eyebrow\">"
-    <> escape_html(senator.state)
-    <> "</p>
-     <h3><a href=\"/senators/"
-    <> escape_html(senator.id)
-    <> "\">"
-    <> escape_html(senator.name)
-    <> "</a></h3>
-     <p class=\"senator-meta\">Intent: " <> escape_html(debate.vote_intent_label(intent)) <> "</p>
-     "
-    <> justification
-    <> "
+     <p class=\"eyebrow\">" <> escape_html(senator.state) <> "</p>
+     <h3><a href=\"/senators/" <> escape_html(senator.id) <> "\" target=\"_blank\" rel=\"noopener\">" <> escape_html(
+    senator.name,
+  ) <> "</a></h3>
+     <p class=\"senator-meta\">Intent: " <> escape_html(
+    debate.vote_intent_label(intent),
+  ) <> "</p>
+     " <> justification <> "
   </section>"
 }
 
@@ -1534,8 +1519,7 @@ fn result_to_option(a: Result(a, b)) -> Option(a) {
 
 fn render_notes(notes: List(office.Note)) -> String {
   case notes {
-    [] ->
-      "<p>No constituent notes yet. Be the first to share a priority.</p>"
+    [] -> "<p>No constituent notes yet. Be the first to share a priority.</p>"
     _ ->
       notes
       |> list.map(fn(note) {
@@ -1550,12 +1534,12 @@ fn render_notes(notes: List(office.Note)) -> String {
         }
 
         "<article class=\"note\"><p><strong>"
-          <> author
-          <> "</strong>"
-          <> contact_text
-          <> "</p><p>"
-          <> escape_html(trim_text(body))
-          <> "</p></article>"
+        <> author
+        <> "</strong>"
+        <> contact_text
+        <> "</p><p>"
+        <> escape_html(trim_text(body))
+        <> "</p></article>"
       })
       |> string.join("")
   }
@@ -2791,6 +2775,7 @@ fn stylesheet() -> String {
   }
   "
 }
+
 fn render_intentions_panel(intentions: List(String)) -> String {
   let body = case intentions {
     [] ->
@@ -2833,8 +2818,7 @@ fn render_statement_blog(
   bill: session.Bill,
 ) -> String {
   let content = case posts {
-    [] ->
-      "<p>No floor statements yet for this session.</p>"
+    [] -> "<p>No floor statements yet for this session.</p>"
     _ ->
       posts
       |> list.map(fn(turn) { render_blog_entry(turn, bill) })
@@ -2852,8 +2836,12 @@ fn render_blog_entry(turn: debate.DebateTurn, bill: session.Bill) -> String {
   let procedure = debate.procedure_label(turn.procedure)
 
   "<article class=\"blog-entry\">
-     <h3>Turn " <> int.to_string(turn.turn_index) <> ": " <> escape_html(bill.title) <> "</h3>
-     <p class=\"blog-meta\">Vote intent: " <> escape_html(intent) <> " &middot; Procedure: " <> escape_html(procedure) <> " &middot; Purpose: " <> escape_html(turn.purpose) <> "</p>
+     <h3>Turn " <> int.to_string(turn.turn_index) <> ": " <> escape_html(
+    bill.title,
+  ) <> "</h3>
+     <p class=\"blog-meta\">Vote intent: " <> escape_html(intent) <> " &middot; Procedure: " <> escape_html(
+    procedure,
+  ) <> " &middot; Purpose: " <> escape_html(turn.purpose) <> "</p>
      <div class=\"blog-body\">" <> format_speech(turn.speech) <> "</div>
    </article>"
 }

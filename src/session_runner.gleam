@@ -1,18 +1,18 @@
 import chamber
 import debate
+import gleam/bit_array
+import gleam/int
 import gleam/io
 import gleam/list
-import gleam/int
 import gleam/option.{type Option, None, Some}
+import gleam/result
+import gleam/string
 import llm_client
 import memory
-import senators
 import senator_agents
+import senators
 import session
 import simplifile
-import gleam/bit_array
-import gleam/string
-import gleam/result
 
 /// Advance the session a fixed number of steps with LLM-driven debate.
 /// This centralises the fallback behaviour so both HTTP requests and the
@@ -39,10 +39,19 @@ fn run_steps_loop(
     True -> current
     False -> {
       case chamber.step_session(current, roster, agents, mem) {
-        Ok(updated) -> run_steps_loop(updated, roster, completed + 1, target, mem, agents)
+        Ok(updated) ->
+          run_steps_loop(updated, roster, completed + 1, target, mem, agents)
         Error(error) -> {
-          let fallback_session = apply_fallback_decision(current, roster, error, mem)
-          run_steps_loop(fallback_session, roster, completed + 1, target, mem, agents)
+          let fallback_session =
+            apply_fallback_decision(current, roster, error, mem, agents)
+          run_steps_loop(
+            fallback_session,
+            roster,
+            completed + 1,
+            target,
+            mem,
+            agents,
+          )
         }
       }
     }
@@ -75,6 +84,7 @@ fn apply_fallback_decision(
   roster: List(senators.Senator),
   error: llm_client.LlmError,
   mem: memory.Memory,
+  agents: senator_agents.Registry,
 ) -> session.Session {
   let total = list.length(roster)
   let message = llm_client.error_to_string(error)
@@ -131,6 +141,14 @@ fn apply_fallback_decision(
               purpose,
               procedure,
             )
+          let _ =
+            memory.add_intentions_snapshot(
+              mem,
+              senator,
+              updated.bill,
+              updated.next_turn_index - 1,
+              senator_agents.intentions_for(agents, senator.id),
+            )
           updated
         }
         _ -> updated
@@ -171,12 +189,12 @@ fn render_proceedings(sess: session.Session) -> String {
 fn format_turn(turn: debate.DebateTurn) -> String {
   let label =
     "Turn "
-      <> int.to_string(turn.turn_index)
-      <> " — "
-      <> turn.senator.name
-      <> " ("
-      <> turn.senator.state
-      <> ")"
+    <> int.to_string(turn.turn_index)
+    <> " — "
+    <> turn.senator.name
+    <> " ("
+    <> turn.senator.state
+    <> ")"
 
   let intent = debate.vote_intent_label(turn.vote_intent)
   let procedure = debate.procedure_label(turn.procedure)
@@ -184,7 +202,12 @@ fn format_turn(turn: debate.DebateTurn) -> String {
   string.join(
     [
       label,
-      "Intent: " <> intent <> "; Procedure: " <> procedure <> "; Purpose: " <> turn.purpose,
+      "Intent: "
+        <> intent
+        <> "; Procedure: "
+        <> procedure
+        <> "; Purpose: "
+        <> turn.purpose,
       turn.speech,
     ],
     "\n",
@@ -204,16 +227,16 @@ fn format_vote_result(result: session.VoteResult) -> String {
   let session.VoteTally(yea: yea, nay: nay, abstain: abstain) = tally
 
   "Yea "
-    <> int.to_string(yea)
-    <> ", Nay "
-    <> int.to_string(nay)
-    <> ", Abstain "
-    <> int.to_string(abstain)
-    <> " — Passed: "
-    <> case passed {
-      True -> "Yes"
-      False -> "No"
-    }
+  <> int.to_string(yea)
+  <> ", Nay "
+  <> int.to_string(nay)
+  <> ", Abstain "
+  <> int.to_string(abstain)
+  <> " — Passed: "
+  <> case passed {
+    True -> "Yes"
+    False -> "No"
+  }
 }
 
 fn file_error_to_string(error: simplifile.FileError) -> String {

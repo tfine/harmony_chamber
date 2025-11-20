@@ -1,5 +1,8 @@
+import envoy
 import gleam/dict.{type Dict}
 import gleam/erlang/process
+import gleam/int
+import gleam/io
 import gleam/string
 
 pub type Note {
@@ -22,10 +25,7 @@ type State {
 pub fn start() -> Office {
   let mailbox = process.new_subject()
 
-  let _pid =
-    process.spawn(fn() {
-      loop(mailbox, State(notes: dict.new()))
-    })
+  let _pid = process.spawn(fn() { loop(mailbox, State(notes: dict.new())) })
 
   Office(mailbox: mailbox)
 }
@@ -37,17 +37,23 @@ pub fn add_note(office: Office, senator_id: String, note: Note) -> Nil {
 pub fn notes_for(office: Office, senator_id: String) -> List(Note) {
   let reply = process.new_subject()
   process.send(office.mailbox, Fetch(senator_id, reply))
-  process.receive_forever(reply)
+  case process.receive(reply, notes_timeout_ms()) {
+    Ok(notes) -> notes
+    Error(Nil) -> {
+      log_timeout(senator_id)
+      drain_late_note_reply(reply)
+      []
+    }
+  }
 }
 
 fn loop(mailbox: process.Subject(Message), state: State) -> Nil {
   case process.receive_forever(mailbox) {
     Store(senator_id, note) -> {
-      let updated =
-        case dict.get(state.notes, senator_id) {
-          Ok(notes) -> [note, ..notes]
-          Error(_) -> [note]
-        }
+      let updated = case dict.get(state.notes, senator_id) {
+        Ok(notes) -> [note, ..notes]
+        Error(_) -> [note]
+      }
 
       let stored = dict.insert(state.notes, senator_id, updated)
       loop(mailbox, State(notes: stored))
@@ -70,4 +76,31 @@ fn sanitize(note: Note) -> Note {
     contact: string.trim(contact),
     body: string.trim(body),
   )
+}
+
+fn notes_timeout_ms() -> Int {
+  case envoy.get("HARMONY_NOTES_TIMEOUT_MS") {
+    Ok(value) ->
+      case int.parse(value) {
+        Ok(parsed) -> parsed
+        Error(_) -> 1000
+      }
+    Error(_) -> 1000
+  }
+}
+
+fn log_timeout(senator_id: String) -> Nil {
+  io.print_error(
+    "WARN [office]: Notes lookup timed out for " <> senator_id <> "\n",
+  )
+}
+
+fn drain_late_note_reply(subject: process.Subject(List(Note))) -> Nil {
+  let _ =
+    process.spawn(fn() {
+      case process.receive_forever(subject) {
+        _ -> Nil
+      }
+    })
+  Nil
 }

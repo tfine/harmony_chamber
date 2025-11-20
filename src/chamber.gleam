@@ -2,8 +2,8 @@ import agent_bridge
 import debate
 import gleam/int
 import gleam/list
-import gleam/order
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import llm_client
 import memory
@@ -20,8 +20,10 @@ pub fn step_session(
 ) -> Result(session.Session, llm_client.LlmError) {
   case current_session.status {
     session.Closed -> Ok(current_session)
-    session.Voting(_) -> step_vote_round(current_session, senator_cycle, agents, mem)
-    session.InDebate -> step_debate_round(current_session, senator_cycle, agents, mem)
+    session.Voting(_) ->
+      step_vote_round(current_session, senator_cycle, agents, mem)
+    session.InDebate ->
+      step_debate_round(current_session, senator_cycle, agents, mem)
   }
 }
 
@@ -58,30 +60,7 @@ fn step_debate_round(
             |> session.advance_speaker(total)
             |> session.increment_llm_calls()
 
-          let _ =
-            case decision {
-              debate.SpeakDecision(
-                will_speak: True,
-                speech: speech,
-                vote_intent: intent,
-                purpose: purpose,
-                procedure: procedure,
-                amendment_summary: _,
-                amendment_rationale: _,
-              ) ->
-                memory.add_debate_turn(
-                  mem,
-                  senator,
-                  updated.bill,
-                  updated.next_turn_index - 1,
-                  speech,
-                  intent,
-                  purpose,
-                  procedure,
-                )
-              _ -> Ok(Nil)
-            }
-
+          // Memory saving is now handled by the senator agent itself
           Ok(updated)
         }
       }
@@ -126,8 +105,7 @@ fn step_vote_round(
       case session.next_vote_target(current_session) {
         Some(senator_id) ->
           case find_senator(senator_cycle, senator_id) {
-            None ->
-              Ok(session.drop_vote_target(current_session))
+            None -> Ok(session.drop_vote_target(current_session))
             Some(senator) -> {
               use decision <- result.try(request_decision_from_agent(
                 agents,
@@ -142,36 +120,14 @@ fn step_vote_round(
                 |> session.drop_vote_target()
                 |> session.increment_llm_calls()
 
-              let _ =
-                case decision {
-                  debate.SpeakDecision(
-                    will_speak: True,
-                    speech: speech,
-                    vote_intent: intent,
-                    purpose: purpose,
-                    procedure: procedure,
-                    amendment_summary: _,
-                    amendment_rationale: _,
-                  ) ->
-                    memory.add_debate_turn(
-                      mem,
-                      senator,
-                      updated.bill,
-                      updated.next_turn_index - 1,
-                      speech,
-                      intent,
-                      purpose,
-                      procedure,
-                    )
-                  _ -> Ok(Nil)
-                }
-
+              // Memory saving is now handled by the senator agent itself
               Ok(updated)
             }
           }
 
         None -> {
-          let outstanding = session.outstanding_voters(current_session, senator_cycle)
+          let outstanding =
+            session.outstanding_voters(current_session, senator_cycle)
 
           case outstanding {
             [] -> Ok(session.resolve_vote(current_session))
@@ -216,13 +172,7 @@ fn request_decision_from_agent(
 ) -> Result(debate.DebateDecision, llm_client.LlmError) {
   case senator_agents.get(agents, senator.id) {
     Some(process) -> senator_process.request_decision(process, sess)
-    None ->
-      agent_bridge.request_debate_decision(
-        senator,
-        sess,
-        mem,
-        [],
-      )
+    None -> agent_bridge.request_debate_decision(senator, sess, mem, [])
   }
 }
 
@@ -239,8 +189,7 @@ fn speaking_order(
     let priority_b = reaction_priority(sess, senator_b)
 
     case int.compare(priority_a, priority_b) {
-      order.Eq ->
-        int.compare(index_a, index_b)
+      order.Eq -> int.compare(index_a, index_b)
       other -> other
     }
   })
@@ -250,10 +199,7 @@ fn speaking_order(
   })
 }
 
-fn reaction_priority(
-  sess: session.Session,
-  senator: senators.Senator,
-) -> Int {
+fn reaction_priority(sess: session.Session, senator: senators.Senator) -> Int {
   case session.vote_intent_for(sess, senator.id) {
     None -> 0
     Some(debate.Undecided) -> 0

@@ -28,21 +28,24 @@ type State {
 pub type Message {
   Deliver(messages.Message)
   GetInbox(process.Subject(List(messages.Message)))
-  RequestDecision(session.Session, process.Subject(Result(debate.DebateDecision, llm_client.LlmError)))
+  RequestDecision(
+    session.Session,
+    process.Subject(Result(debate.DebateDecision, llm_client.LlmError)),
+  )
   SetPrimaryGoal(String)
   AddCommitment(String)
   AddConstituentPressure(String)
   GetIntentions(process.Subject(List(String)))
 }
 
-pub fn start(
-  senator: senators.Senator,
-  mem: memory.Memory,
-) -> SenatorProcess {
-  let mailbox = process.new_subject()
+pub fn start(senator: senators.Senator, mem: memory.Memory) -> SenatorProcess {
+  let handshake: process.Subject(process.Subject(Message)) =
+    process.new_subject()
 
   let _pid =
     process.spawn(fn() {
+      let mailbox = process.new_subject()
+      process.send(handshake, mailbox)
       loop(
         mailbox,
         State(
@@ -54,6 +57,7 @@ pub fn start(
       )
     })
 
+  let mailbox = process.receive_forever(handshake)
   SenatorProcess(id: senator.id, mailbox: mailbox)
 }
 
@@ -71,10 +75,10 @@ pub fn request_decision(
     Error(Nil) -> {
       io.println(
         "Senator "
-          <> proc.id
-          <> " timed out after "
-          <> int.to_string(decision_timeout_ms())
-          <> "ms",
+        <> proc.id
+        <> " timed out after "
+        <> int.to_string(decision_timeout_ms())
+        <> "ms",
       )
       let _ =
         process.spawn(fn() {
@@ -84,17 +88,14 @@ pub fn request_decision(
         })
       Error(llm_client.HttpFailure(
         "Debate decision timed out after "
-          <> int.to_string(decision_timeout_ms())
-          <> "ms",
+        <> int.to_string(decision_timeout_ms())
+        <> "ms",
       ))
     }
   }
 }
 
-pub fn deliver_message(
-  proc: SenatorProcess,
-  message: messages.Message,
-) -> Nil {
+pub fn deliver_message(proc: SenatorProcess, message: messages.Message) -> Nil {
   process.send(proc.mailbox, Deliver(message))
 }
 
@@ -119,13 +120,17 @@ pub fn add_constituent_pressure(proc: SenatorProcess, note: String) -> Nil {
 pub fn intentions_summary(proc: SenatorProcess) -> List(String) {
   let reply = process.new_subject()
   process.send(proc.mailbox, GetIntentions(reply))
-  process.receive_forever(reply)
+  case process.receive(reply, intentions_timeout_ms()) {
+    Ok(lines) -> lines
+    Error(Nil) -> {
+      log_intentions_timeout(proc.id)
+      drain_late_intentions(reply)
+      []
+    }
+  }
 }
 
-fn loop(
-  mailbox: process.Subject(Message),
-  state: State,
-) -> Nil {
+fn loop(mailbox: process.Subject(Message), state: State) -> Nil {
   case process.receive_forever(mailbox) {
     Deliver(message) ->
       loop(
@@ -161,7 +166,10 @@ fn loop(
         mailbox,
         State(
           ..state,
-          intentions: intentions.add_constituent_pressure(state.intentions, entry),
+          intentions: intentions.add_constituent_pressure(
+            state.intentions,
+            entry,
+          ),
         ),
       )
 
@@ -177,6 +185,7 @@ fn loop(
 
       let _ =
         process.spawn(fn() {
+          // Agent delegates to agent_bridge which handles both LLM call and memory saving
           let decision =
             agent_bridge.request_debate_decision(
               senator,
@@ -197,13 +206,40 @@ fn decision_timeout_ms() -> Int {
     Ok(value) ->
       case int.parse(value) {
         Ok(parsed) -> parsed
-        Error(_) -> 20000
+        Error(_) -> 20_000
       }
-    Error(_) -> 20000
+    Error(_) -> 20_000
   }
 }
 
 fn prune_inbox(inbox: List(messages.Message)) -> List(messages.Message) {
   inbox
   |> list.take(10)
+}
+
+fn intentions_timeout_ms() -> Int {
+  case envoy.get("HARMONY_INTENTIONS_TIMEOUT_MS") {
+    Ok(value) ->
+      case int.parse(value) {
+        Ok(parsed) -> parsed
+        Error(_) -> 1000
+      }
+    Error(_) -> 1000
+  }
+}
+
+fn log_intentions_timeout(id: String) -> Nil {
+  io.print_error(
+    "WARN [senator_process]: Intentions summary timed out for " <> id <> "\n",
+  )
+}
+
+fn drain_late_intentions(subject: process.Subject(List(String))) -> Nil {
+  let _ =
+    process.spawn(fn() {
+      case process.receive_forever(subject) {
+        _ -> Nil
+      }
+    })
+  Nil
 }

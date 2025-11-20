@@ -29,6 +29,7 @@ type Message {
   Resume
   Stop
   Query(process.Subject(Bool))
+  TickCompleted(session.Session)
 }
 
 type State {
@@ -42,6 +43,7 @@ type State {
     running: Bool,
     export_proceedings: Bool,
     agents: senator_agents.Registry,
+    tick_inflight: Bool,
   )
 }
 
@@ -65,6 +67,7 @@ pub fn start(
     running: settings.enabled,
     export_proceedings: settings.export_proceedings,
     agents: agents,
+    tick_inflight: False,
   )
 
   let _pid =
@@ -95,13 +98,20 @@ pub fn status(pilot: Autopilot) -> Bool {
   process.send(pilot.mailbox, Query(reply))
   case process.receive(reply, status_timeout_ms) {
     Ok(running) -> running
-    Error(Nil) -> True
+    Error(Nil) -> {
+      drain_late_status(reply)
+      True
+    }
   }
 }
 
 fn loop(mailbox: process.Subject(Message), state: State) -> Nil {
   case process.receive(mailbox, state.tick_ms) {
     Ok(Stop) -> Nil
+    Ok(TickCompleted(sess)) -> {
+      let next_state = handle_tick_completion(state, sess)
+      loop(mailbox, next_state)
+    }
     Ok(message) ->
       case handle_message(state, message) {
         #(next_state, continue) ->
@@ -111,7 +121,7 @@ fn loop(mailbox: process.Subject(Message), state: State) -> Nil {
           }
       }
     Error(Nil) -> {
-      let next_state = maybe_tick(state)
+      let next_state = maybe_tick(mailbox, state)
       loop(mailbox, next_state)
     }
   }
@@ -126,41 +136,16 @@ fn handle_message(state: State, message: Message) -> #(State, Bool) {
       process.send(reply, state.running)
       #(state, True)
     }
+    TickCompleted(_) -> #(state, True)
   }
 }
 
-fn maybe_tick(state: State) -> State {
-  case state.running {
+fn maybe_tick(mailbox: process.Subject(Message), state: State) -> State {
+  case state.running && !state.tick_inflight {
     False -> state
     True -> {
-      let current = session_manager.current(state.manager)
-      let advanced =
-        session_runner.run_steps(
-          current,
-          state.roster,
-          state.steps_per_tick,
-          state.memory,
-          state.agents,
-        )
-
-      let _ =
-        case advanced.status {
-          session.Closed -> {
-            case state.export_proceedings {
-              True -> {
-                let path = session_runner.default_proceedings_path(advanced)
-                let _ = session_runner.publish_proceedings(advanced, path)
-                Nil
-              }
-              False -> Nil
-            }
-          }
-          _ -> Nil
-        }
-
-      session_manager.replace(state.manager, advanced)
-      persist_snapshot(state.snapshot_path, advanced)
-      state
+      spawn_tick_job(mailbox, state)
+      State(..state, tick_inflight: True)
     }
   }
 }
@@ -171,4 +156,62 @@ fn persist_snapshot(path: String, sess: session.Session) {
     Error(message) ->
       io.println("Snapshot write failed (" <> path <> "): " <> message)
   }
+}
+
+fn drain_late_status(subject: process.Subject(Bool)) -> Nil {
+  let _ =
+    process.spawn(fn() {
+      case process.receive_forever(subject) {
+        _ -> Nil
+      }
+    })
+  Nil
+}
+
+fn spawn_tick_job(
+  mailbox: process.Subject(Message),
+  state: State,
+) -> Nil {
+  let manager = state.manager
+  let roster = state.roster
+  let steps = state.steps_per_tick
+  let mem = state.memory
+  let agents = state.agents
+
+  let _ =
+    process.spawn(fn() {
+      let current = session_manager.current(manager)
+      let advanced =
+        session_runner.run_steps(
+          current,
+          roster,
+          steps,
+          mem,
+          agents,
+        )
+      process.send(mailbox, TickCompleted(advanced))
+    })
+
+  Nil
+}
+
+fn handle_tick_completion(state: State, sess: session.Session) -> State {
+  let _ =
+    case sess.status {
+      session.Closed -> {
+        case state.export_proceedings {
+          True -> {
+            let path = session_runner.default_proceedings_path(sess)
+            let _ = session_runner.publish_proceedings(sess, path)
+            Nil
+          }
+          False -> Nil
+        }
+      }
+      _ -> Nil
+    }
+
+  session_manager.replace(state.manager, sess)
+  persist_snapshot(state.snapshot_path, sess)
+  State(..state, tick_inflight: False)
 }
