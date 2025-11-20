@@ -52,8 +52,39 @@ const default_embedding_model = "text-embedding-3-small"
 const default_retry_attempts = 3
 const default_retry_backoff_ms = 250
 
+type WorkerEvent {
+  WorkerReply(Result(String, LlmError))
+  WorkerDown(String)
+}
+
+fn resolve_model(model_override: Option(String)) -> String {
+  case model_override {
+    Some(value) -> value
+    None ->
+      case envoy.get("HARMONY_MODEL") {
+        Ok(value) -> value
+        Error(_) -> default_model
+      }
+  }
+}
+
+fn load_config(model_override: Option(String)) -> Result(Config, LlmError) {
+  case envoy.get("OPENAI_API_KEY") {
+    Ok(api_key) -> {
+      let model = resolve_model(model_override)
+      let api_base = case envoy.get("HARMONY_API_BASE") {
+        Ok(value) -> value
+        Error(_) -> default_api_base
+      }
+
+      Ok(Config(api_key:, model:, api_base:))
+    }
+    Error(_) -> Error(MissingApiKey)
+  }
+}
+
 pub fn embed(text: String) -> Result(List(Float), LlmError) {
-  use config <- result.try(load_config())
+  use config <- result.try(load_config(None))
 
   let model = case envoy.get("HARMONY_EMBEDDING_MODEL") {
     Ok(value) -> value
@@ -70,29 +101,79 @@ pub fn embed(text: String) -> Result(List(Float), LlmError) {
 /// Spawn an LLM request in a worker process and enforce a timeout so callers
 /// don't block indefinitely if the upstream model is slow.
 pub fn call_llm_with_timeout(prompt: String, timeout_ms: Int) -> Result(String, LlmError) {
-  let reply = process.new_subject()
+  call_llm_with_timeout_internal(prompt, timeout_ms, None)
+}
 
-  let _worker =
-    process.spawn(fn() {
-      let result = call_llm(prompt)
-      process.send(reply, result)
-    })
-
-  case process.receive(reply, timeout_ms) {
-    Ok(result) -> result
-    Error(Nil) ->
-      Error(HttpFailure("LLM call timed out after " <> int.to_string(timeout_ms) <> "ms"))
-  }
+pub fn call_llm_with_timeout_using_model(
+  prompt: String,
+  timeout_ms: Int,
+  model_override: Option(String),
+) -> Result(String, LlmError) {
+  call_llm_with_timeout_internal(prompt, timeout_ms, model_override)
 }
 
 pub fn call_llm(prompt: String) -> Result(String, LlmError) {
-  use config <- result.try(load_config())
+  call_llm_internal(prompt, None)
+}
+
+pub fn call_llm_with_model(prompt: String, model_override: String) -> Result(String, LlmError) {
+  call_llm_internal(prompt, Some(model_override))
+}
+
+fn call_llm_internal(
+  prompt: String,
+  model_override: Option(String),
+) -> Result(String, LlmError) {
+  use config <- result.try(load_config(model_override))
 
   retry(
     fn() { completion_once(prompt, config) },
     max_retry_attempts(),
     retry_backoff_ms(),
   )
+}
+
+fn call_llm_with_timeout_internal(
+  prompt: String,
+  timeout_ms: Int,
+  model_override: Option(String),
+) -> Result(String, LlmError) {
+  let reply = process.new_subject()
+
+  let worker =
+    process.spawn_unlinked(fn() {
+      let result = call_llm_internal(prompt, model_override)
+      process.send(reply, result)
+    })
+
+  let monitor = process.monitor(worker)
+
+  let selector =
+    process.select_specific_monitor(
+      process.select_map(
+        process.new_selector(),
+        reply,
+        fn(result) { WorkerReply(result) },
+      ),
+      monitor,
+      fn(down) { WorkerDown(string.inspect(down)) },
+    )
+
+  case process.selector_receive(selector, timeout_ms) {
+    Ok(event) -> {
+      process.demonitor_process(monitor)
+      case event {
+        WorkerReply(result) -> result
+        WorkerDown(reason) ->
+          Error(HttpFailure("LLM worker terminated: " <> reason))
+      }
+    }
+    Error(Nil) -> {
+      process.kill(worker)
+      process.demonitor_process(monitor)
+      Error(HttpFailure("LLM call timed out after " <> int.to_string(timeout_ms) <> "ms"))
+    }
+  }
 }
 
 pub fn parse_debate_decision(
@@ -131,25 +212,6 @@ pub fn error_to_string(error: LlmError) -> String {
 
 fn log_info(message: String) -> Nil {
   io.println("INFO [llm_client]: " <> message)
-}
-
-fn load_config() -> Result(Config, LlmError) {
-  case envoy.get("OPENAI_API_KEY") {
-    Ok(api_key) -> {
-      let model = case envoy.get("HARMONY_MODEL") {
-        Ok(value) -> value
-        Error(_) -> default_model
-      }
-
-      let api_base = case envoy.get("HARMONY_API_BASE") {
-        Ok(value) -> value
-        Error(_) -> default_api_base
-      }
-
-      Ok(Config(api_key:, model:, api_base:))
-    }
-    Error(_) -> Error(MissingApiKey)
-  }
 }
 
 fn completion_once(prompt: String, config: Config) -> Result(String, LlmError) {
@@ -254,8 +316,8 @@ fn build_payload(prompt: String, model: String) -> String {
         #(
           "content",
           json.string(
-            "You are a sitting United States Senator giving speeches and preparing and voting on legislation. "
-            <> "Respond in polished speech paragraphs, cite concrete considerations, and avoid meta commentary.",
+            "You are a member of the AGATA Senate: caretakers of a 70-acre art collaborative and regenerative farm at Coward, South Carolina. "
+            <> "Speak with the urgency of those running the farm, reference AGATA's priorities, and avoid meta commentary.",
           ),
         ),
       ]),

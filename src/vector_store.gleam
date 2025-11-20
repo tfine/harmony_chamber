@@ -10,6 +10,7 @@ import gleam/json
 import gleam/list
 import gleam/result
 import gleam/string
+import gleam/option.{type Option, None, Some}
 
 pub type Pinecone {
   Pinecone(
@@ -45,6 +46,13 @@ pub type QueryMatch {
     turn_index: Int,
     vote_intent: String,
     purpose: String,
+    // Time legislation specific fields
+    time_horizon: Option(String),
+    status: Option(String),
+    timestamp: Option(String),
+    todd_energy: Option(String),
+    delaney_energy: Option(String),
+    actual_minutes: Option(Int),
   )
 }
 
@@ -291,8 +299,23 @@ fn match_decoder() -> decode.Decoder(QueryMatch) {
   use score <- decode.field("score", decode.float)
   use meta <- decode.field("metadata", metadata_decoder())
 
-  let #(senator_id, bill_id, bill_title, summary, content, kind, turn_index, vote_intent, purpose) =
-    meta
+  let #(
+    senator_id,
+    bill_id,
+    bill_title,
+    summary,
+    content,
+    kind,
+    turn_index,
+    vote_intent,
+    purpose,
+    time_horizon,
+    status,
+    timestamp,
+    todd_energy,
+    delaney_energy,
+    actual_minutes,
+  ) = meta
 
   decode.success(QueryMatch(
     id: id,
@@ -306,6 +329,12 @@ fn match_decoder() -> decode.Decoder(QueryMatch) {
     turn_index: turn_index,
     vote_intent: vote_intent,
     purpose: purpose,
+    time_horizon: time_horizon,
+    status: status,
+    timestamp: timestamp,
+    todd_energy: todd_energy,
+    delaney_energy: delaney_energy,
+    actual_minutes: actual_minutes,
   ))
 }
 
@@ -320,10 +349,16 @@ fn metadata_decoder() -> decode.Decoder(
     Int,
     String,
     String,
+    Option(String),
+    Option(String),
+    Option(String),
+    Option(String),
+    Option(String),
+    Option(Int),
   ),
 ) {
-  use senator_id <- decode.field("senator_id", decode.string)
-  use bill_id <- decode.field("bill_id", decode.string)
+  use senator_id <- decode.optional_field("senator_id", "", decode.string)
+  use bill_id <- decode.optional_field("bill_id", "", decode.string)
   use bill_title <- decode.optional_field("bill_title", "", decode.string)
   use summary <- decode.field("summary", decode.string)
   use content <- decode.optional_field("content", summary, decode.string)
@@ -331,6 +366,20 @@ fn metadata_decoder() -> decode.Decoder(
   use turn_index <- decode.optional_field("turn_index", 0, decode.int)
   use vote_intent <- decode.optional_field("vote_intent", "undecided", decode.string)
   use purpose <- decode.optional_field("purpose", "new_argument", decode.string)
+  // Time legislation specific fields
+  use time_horizon_value <- decode.optional_field("time_horizon", "", decode.string)
+  use status_value <- decode.optional_field("status", "", decode.string)
+  use timestamp_value <- decode.optional_field("timestamp", "", decode.string)
+  use todd_energy_value <- decode.optional_field("todd_energy", "", decode.string)
+  use delaney_energy_value <- decode.optional_field("delaney_energy", "", decode.string)
+  use actual_minutes_value <- decode.optional_field("actual_minutes", 0, decode.int)
+
+  let time_horizon = optional_string(time_horizon_value)
+  let status = optional_string(status_value)
+  let timestamp = optional_string(timestamp_value)
+  let todd_energy = optional_string(todd_energy_value)
+  let delaney_energy = optional_string(delaney_energy_value)
+  let actual_minutes = optional_positive_int(actual_minutes_value)
 
   decode.success(#(
     senator_id,
@@ -342,7 +391,27 @@ fn metadata_decoder() -> decode.Decoder(
     turn_index,
     vote_intent,
     purpose,
+    time_horizon,
+    status,
+    timestamp,
+    todd_energy,
+    delaney_energy,
+    actual_minutes,
   ))
+}
+
+fn optional_string(value: String) -> Option(String) {
+  case string.trim(value) {
+    "" -> None
+    _ -> Some(value)
+  }
+}
+
+fn optional_positive_int(value: Int) -> Option(Int) {
+  case value <= 0 {
+    True -> None
+    False -> Some(value)
+  }
 }
 
 fn index_stats_decoder() -> decode.Decoder(Int) {

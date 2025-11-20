@@ -3,6 +3,7 @@ import envoy
 import gleam/erlang/process
 import gleam/int
 import gleam/io
+import gleam/option.{type Option, Some, None}
 import gleam/string
 import llm_client
 import memory
@@ -33,7 +34,11 @@ pub fn request_debate_decision(
 
   log_request(senator, prompt)
 
-  case llm_client.call_llm_with_timeout(prompt, debate_timeout_ms()) {
+  case llm_client.call_llm_with_timeout_using_model(
+    prompt,
+    debate_timeout_ms(),
+    core_debate_model(),
+  ) {
     Ok(body) -> {
       let decision = llm_client.parse_debate_decision(body)
 
@@ -90,11 +95,19 @@ fn recall_with_timeout(
   let reply = process.new_subject()
   let query = prompts.memory_query_text(sess)
 
-  let _ =
-    process.spawn(fn() {
-      let outcome = memory.recall(mem, senator.id, sess.bill.id, query, 5)
-      process.send(reply, outcome)
-    })
+      let _ =
+        process.spawn(fn() {
+          let outcome =
+            memory.recall(
+              mem,
+              Some(senator.id),
+              Some(sess.bill.id),
+              None,
+              query,
+              5,
+            )
+          process.send(reply, outcome)
+        })
 
   case process.receive(reply, timeout) {
     Ok(result) ->
@@ -143,6 +156,13 @@ fn memory_context_timeout_ms() -> Int {
         Error(_) -> 3000
       }
     Error(_) -> 3000
+  }
+}
+
+fn core_debate_model() -> Option(String) {
+  case envoy.get("HARMONY_CORE_DEBATE_MODEL") {
+    Ok(value) -> Some(value)
+    Error(_) -> None
   }
 }
 

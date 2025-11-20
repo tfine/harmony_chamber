@@ -15,6 +15,7 @@ pub type Settings {
     steps_per_tick: Int,
     snapshot_path: String,
     export_proceedings: Bool,
+    mode: String, // "debate", "time", or "both"
   )
 }
 
@@ -44,6 +45,7 @@ type State {
     export_proceedings: Bool,
     agents: senator_agents.Registry,
     tick_inflight: Bool,
+    mode: String,
   )
 }
 
@@ -68,6 +70,7 @@ pub fn start(
     export_proceedings: settings.export_proceedings,
     agents: agents,
     tick_inflight: False,
+    mode: settings.mode,
   )
 
   let _pid =

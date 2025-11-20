@@ -7,11 +7,14 @@ import gleam/int
 import gleam/io
 import gleam/json
 import gleam/list
+import gleam/option.{type Option, Some, None}
 import gleam/result
 import gleam/string
+import human_status
 import llm_client
 import senators
 import session
+import time_bill
 import vector_store
 
 type AlertHook =
@@ -44,6 +47,13 @@ pub type MemoryHit {
     turn_index: Int,
     vote_intent: String,
     purpose: String,
+    // Time legislation specific fields
+    time_horizon: Option(String),
+    status: Option(String),
+    timestamp: Option(String),
+    todd_energy: Option(String),
+    delaney_energy: Option(String),
+    actual_minutes: Option(Int),
   )
 }
 
@@ -176,10 +186,60 @@ pub fn add_intentions_snapshot(
   }
 }
 
+pub fn add_time_bill(memory: Memory, bill: time_bill.TimeBill) -> Result(Nil, MemoryError) {
+  case memory {
+    Disabled(reason) -> {
+      log_info("Memory disabled (" <> reason <> "); skipping time bill store.")
+      Ok(Nil)
+    }
+    Memory(vector_index: _, worker: worker, ..) -> {
+      log_info("Sending time bill to memory worker: " <> bill.id)
+      process.send(worker, StoreTimeBill(bill: bill))
+      Ok(Nil)
+    }
+  }
+}
+
+pub fn add_human_status(
+  memory: Memory,
+  status: human_status.HumanStatus,
+) -> Result(Nil, MemoryError) {
+  case memory {
+    Disabled(reason) -> {
+      log_info("Memory disabled (" <> reason <> "); skipping human status store.")
+      Ok(Nil)
+    }
+    Memory(vector_index: _, worker: worker, ..) -> {
+      log_info("Sending human status to memory worker: " <> status.timestamp)
+      process.send(worker, StoreHumanStatus(status: status))
+      Ok(Nil)
+    }
+  }
+}
+
+pub fn add_block_report(
+  memory: Memory,
+  report: human_status.BlockReport,
+  bill_id: String,
+) -> Result(Nil, MemoryError) {
+  case memory {
+    Disabled(reason) -> {
+      log_info("Memory disabled (" <> reason <> "); skipping block report store.")
+      Ok(Nil)
+    }
+    Memory(vector_index: _, worker: worker, ..) -> {
+      log_info("Sending block report to memory worker: " <> report.timestamp)
+      process.send(worker, StoreBlockReport(report: report, bill_id: bill_id))
+      Ok(Nil)
+    }
+  }
+}
+
 pub fn recall(
   memory: Memory,
-  senator_id: String,
-  bill_id: String,
+  senator_id: Option(String),
+  bill_id: Option(String),
+  kind: Option(String),
   query_text: String,
   limit: Int,
 ) -> Result(List(MemoryHit), MemoryError) {
@@ -191,10 +251,35 @@ pub fn recall(
         |> result.map_error(EmbeddingError),
       )
 
-      let filters = recall_filters(senator_id, bill_id)
+      let filters = recall_filters(senator_id, bill_id, kind)
       query_with_fallback(vector_index, embedding, filters, limit)
     }
   }
+}
+
+pub fn recall_time_bills(
+  memory: Memory,
+  query_text: String,
+  limit: Int,
+) -> Result(List(MemoryHit), MemoryError) {
+  recall(memory, None, None, Some("time_bill"), query_text, limit)
+}
+
+pub fn recall_human_status(
+  memory: Memory,
+  query_text: String,
+  limit: Int,
+) -> Result(List(MemoryHit), MemoryError) {
+  recall(memory, None, None, Some("human_status"), query_text, limit)
+}
+
+pub fn recall_block_reports(
+  memory: Memory,
+  bill_id: String,
+  query_text: String,
+  limit: Int,
+) -> Result(List(MemoryHit), MemoryError) {
+  recall(memory, None, Some(bill_id), Some("block_report"), query_text, limit)
 }
 
 fn from_matches(matches: List(vector_store.QueryMatch)) -> List(MemoryHit) {
@@ -212,6 +297,13 @@ fn from_matches(matches: List(vector_store.QueryMatch)) -> List(MemoryHit) {
       turn_index: turn_index,
       vote_intent: vote_intent,
       purpose: purpose,
+      // Time legislation specific fields
+      time_horizon: time_horizon,
+      status: status,
+      timestamp: timestamp,
+      todd_energy: todd_energy,
+      delaney_energy: delaney_energy,
+      actual_minutes: actual_minutes,
     ) = match
 
     MemoryHit(
@@ -225,6 +317,13 @@ fn from_matches(matches: List(vector_store.QueryMatch)) -> List(MemoryHit) {
       turn_index: turn_index,
       vote_intent: vote_intent,
       purpose: purpose,
+      // Time legislation specific fields
+      time_horizon: time_horizon,
+      status: status,
+      timestamp: timestamp,
+      todd_energy: todd_energy,
+      delaney_energy: delaney_energy,
+      actual_minutes: actual_minutes,
     )
   })
 }
@@ -352,6 +451,48 @@ fn worker_loop(
       }
       worker_loop(mailbox, index, alert_hook)
     }
+    StoreTimeBill(bill) -> {
+      log_info("Memory worker received StoreTimeBill for " <> bill.id)
+      case persist_time_bill_with_retry(index, bill, 0) {
+        Ok(_) -> {
+          log_info("Stored time bill " <> bill.id)
+          Nil
+        }
+        Error(error) ->
+          alert_hook(
+            "Time bill store failed after retries: " <> error_to_string(error),
+          )
+      }
+      worker_loop(mailbox, index, alert_hook)
+    }
+    StoreHumanStatus(status) -> {
+      log_info("Memory worker received StoreHumanStatus for " <> status.timestamp)
+      case persist_human_status_with_retry(index, status, 0) {
+        Ok(_) -> {
+          log_info("Stored human status " <> status.timestamp)
+          Nil
+        }
+        Error(error) ->
+          alert_hook(
+            "Human status store failed after retries: " <> error_to_string(error),
+          )
+      }
+      worker_loop(mailbox, index, alert_hook)
+    }
+    StoreBlockReport(report, bill_id) -> {
+      log_info("Memory worker received StoreBlockReport for " <> report.timestamp)
+      case persist_block_report_with_retry(index, report, bill_id, 0) {
+        Ok(_) -> {
+          log_info("Stored block report " <> report.timestamp)
+          Nil
+        }
+        Error(error) ->
+          alert_hook(
+            "Block report store failed after retries: " <> error_to_string(error),
+          )
+      }
+      worker_loop(mailbox, index, alert_hook)
+    }
   }
 }
 
@@ -456,6 +597,91 @@ fn persist_intentions_with_retry(
             lines,
             attempt + 1,
           )
+        }
+        False -> Error(error)
+      }
+  }
+}
+
+fn persist_time_bill_with_retry(
+  index: vector_store.Pinecone,
+  bill: time_bill.TimeBill,
+  attempt: Int,
+) -> Result(Nil, MemoryError) {
+  case persist_time_bill(index, bill) {
+    Ok(_) -> Ok(Nil)
+    Error(error) ->
+      case attempt < max_memory_retries && is_transient(error) {
+        True -> {
+          let delay = initial_memory_backoff_ms * power_of_two(attempt)
+          log_error(
+            "Transient time bill store error (attempt "
+            <> int.to_string(attempt + 1)
+            <> "): "
+            <> error_to_string(error)
+            <> " — retrying in "
+            <> int.to_string(delay)
+            <> "ms",
+          )
+          process.sleep(delay)
+          persist_time_bill_with_retry(index, bill, attempt + 1)
+        }
+        False -> Error(error)
+      }
+  }
+}
+
+fn persist_human_status_with_retry(
+  index: vector_store.Pinecone,
+  status: human_status.HumanStatus,
+  attempt: Int,
+) -> Result(Nil, MemoryError) {
+  case persist_human_status(index, status) {
+    Ok(_) -> Ok(Nil)
+    Error(error) ->
+      case attempt < max_memory_retries && is_transient(error) {
+        True -> {
+          let delay = initial_memory_backoff_ms * power_of_two(attempt)
+          log_error(
+            "Transient human status store error (attempt "
+            <> int.to_string(attempt + 1)
+            <> "): "
+            <> error_to_string(error)
+            <> " — retrying in "
+            <> int.to_string(delay)
+            <> "ms",
+          )
+          process.sleep(delay)
+          persist_human_status_with_retry(index, status, attempt + 1)
+        }
+        False -> Error(error)
+      }
+  }
+}
+
+fn persist_block_report_with_retry(
+  index: vector_store.Pinecone,
+  report: human_status.BlockReport,
+  bill_id: String,
+  attempt: Int,
+) -> Result(Nil, MemoryError) {
+  case persist_block_report(index, report, bill_id) {
+    Ok(_) -> Ok(Nil)
+    Error(error) ->
+      case attempt < max_memory_retries && is_transient(error) {
+        True -> {
+          let delay = initial_memory_backoff_ms * power_of_two(attempt)
+          log_error(
+            "Transient block report store error (attempt "
+            <> int.to_string(attempt + 1)
+            <> "): "
+            <> error_to_string(error)
+            <> " — retrying in "
+            <> int.to_string(delay)
+            <> "ms",
+          )
+          process.sleep(delay)
+          persist_block_report_with_retry(index, report, bill_id, attempt + 1)
         }
         False -> Error(error)
       }
@@ -597,6 +823,122 @@ fn persist_intentions(
   |> result.map_error(VectorError)
 }
 
+fn persist_time_bill(
+  index: vector_store.Pinecone,
+  bill: time_bill.TimeBill,
+) -> Result(Nil, MemoryError) {
+  let content = time_bill_content(bill)
+  use embedding <- result.try(
+    llm_client.embed(content)
+    |> result.map_error(EmbeddingError),
+  )
+
+  let metadata =
+    json.object([
+      #("kind", json.string("time_bill")),
+      #("bill_id", json.string(bill.id)),
+      #("bill_title", json.string(bill.title)),
+      #("purpose", json.string(bill.purpose)),
+      #("time_horizon", json.string(time_bill.time_horizon_to_string(bill.time_horizon))),
+      #("status", json.string(time_bill.status_to_string(bill.status))),
+      #("summary", json.string(summarise(content))),
+      #("content", json.string(content)),
+    ])
+
+  let vector =
+    vector_store.UpsertVector(
+      id: bill.id,
+      values: embedding,
+      metadata: metadata,
+    )
+
+  vector_store.upsert(index, [vector])
+  |> result.map_error(VectorError)
+}
+
+fn persist_human_status(
+  index: vector_store.Pinecone,
+  status: human_status.HumanStatus,
+) -> Result(Nil, MemoryError) {
+  let content = human_status.format_status(status)
+  use embedding <- result.try(
+    llm_client.embed(content)
+    |> result.map_error(EmbeddingError),
+  )
+
+  let metadata =
+    json.object([
+      #("kind", json.string("human_status")),
+      #("timestamp", json.string(status.timestamp)),
+      #("todd_energy", json.string(time_bill.energy_to_string(status.todd_energy))),
+      #("delaney_energy", json.string(time_bill.energy_to_string(status.delaney_energy))),
+      #("summary", json.string(summarise(content))),
+      #("content", json.string(content)),
+    ])
+
+  let vector =
+    vector_store.UpsertVector(
+      id: "human_status-" <> status.timestamp,
+      values: embedding,
+      metadata: metadata,
+    )
+
+  vector_store.upsert(index, [vector])
+  |> result.map_error(VectorError)
+}
+
+fn persist_block_report(
+  index: vector_store.Pinecone,
+  report: human_status.BlockReport,
+  bill_id: String,
+) -> Result(Nil, MemoryError) {
+  let content = human_status.format_block_report(report)
+  use embedding <- result.try(
+    llm_client.embed(content)
+    |> result.map_error(EmbeddingError),
+  )
+
+  let metadata =
+    json.object([
+      #("kind", json.string("block_report")),
+      #("bill_id", json.string(bill_id)),
+      #("timestamp", json.string(report.timestamp)),
+      #("actual_minutes", json.int(report.actual_minutes)),
+      #("summary", json.string(summarise(content))),
+      #("content", json.string(content)),
+    ])
+
+  let vector =
+    vector_store.UpsertVector(
+      id: "block_report-" <> bill_id <> "-" <> report.timestamp,
+      values: embedding,
+      metadata: metadata,
+    )
+
+  vector_store.upsert(index, [vector])
+  |> result.map_error(VectorError)
+}
+
+fn time_bill_content(bill: time_bill.TimeBill) -> String {
+  let micro_blocks_summary =
+    bill.micro_blocks
+    |> list.map(fn(block) {
+      "  - "
+        <> int.to_string(block.duration_minutes)
+        <> " min: "
+        <> string.join(block.instructions, "; ")
+    })
+    |> string.join("\n")
+
+  "Time Bill: "
+    <> bill.title
+    <> "\nPurpose: "
+    <> bill.purpose
+    <> "\nMicro-blocks:\n"
+    <> micro_blocks_summary
+
+}
+
 fn query_with_fallback(
   index: vector_store.Pinecone,
   embedding: List(Float),
@@ -617,16 +959,43 @@ fn query_with_fallback(
   }
 }
 
-fn recall_filters(senator_id: String, bill_id: String) -> List(json.Json) {
-  let senator_clause = equality_filter(senator_id)
-  let bill_clause = equality_filter(bill_id)
+fn recall_filters(
+  senator_id: Option(String),
+  bill_id: Option(String),
+  kind: Option(String),
+) -> List(json.Json) {
 
-  [
-    json.object([#("senator_id", senator_clause), #("bill_id", bill_clause)]),
-    json.object([#("senator_id", senator_clause)]),
-    json.object([#("bill_id", bill_clause)]),
-    json.null(),
-  ]
+  let filter_with_kind = case kind {
+    Some(k) -> [ #("kind", equality_filter(k)) ]
+    None -> []
+  }
+
+  let filter_with_senator = case senator_id {
+    Some(s_id) -> [ #("senator_id", equality_filter(s_id)) ]
+    None -> []
+  }
+
+  let filter_with_bill = case bill_id {
+    Some(b_id) -> [ #("bill_id", equality_filter(b_id)) ]
+    None -> []
+  }
+
+  let combined_filter_fields =
+    flatten_filters([filter_with_kind, filter_with_senator, filter_with_bill])
+
+  case combined_filter_fields {
+    [] -> [json.null()] // No specific filters, return a fallback
+    _ -> [json.object(combined_filter_fields), json.null()]
+  }
+}
+
+fn flatten_filters(
+  lists: List(List(#(String, json.Json))),
+) -> List(#(String, json.Json)) {
+  case lists {
+    [] -> []
+    [head, ..tail] -> list.append(head, flatten_filters(tail))
+  }
 }
 
 fn equality_filter(value: String) -> json.Json {
@@ -664,6 +1033,9 @@ pub type StoreMessage {
     turn_index: Int,
     lines: List(String),
   )
+  StoreTimeBill(bill: time_bill.TimeBill)
+  StoreHumanStatus(status: human_status.HumanStatus)
+  StoreBlockReport(report: human_status.BlockReport, bill_id: String)
 }
 
 fn power_of_two(exponent: Int) -> Int {

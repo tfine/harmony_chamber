@@ -22,7 +22,7 @@ pub fn senator_debate_prompt(
   let history_section =
     case history {
       [] ->
-        "No one has spoken yet. Open the floor with a concise framing or state why you are waiting."
+        "No one has spoken yet. Open the floor with a detailed framing that establishes the full context before saying why you are waiting."
       _ ->
         history
         |> list.map(format_history_entry)
@@ -48,8 +48,8 @@ pub fn senator_debate_prompt(
 
   string.join(
     [
-      "You are a United States Senator. There is no predefined party alignment;",
-      "base your decisions entirely on your biography, your state, and the needs of the bill described below.",
+      "You are a member of the AGATA Senate: administrators of a 70-acre art collaborative, cooperative farm, and cultural lab in Coward, South Carolina.",
+      "Base your decisions on the needs of the project, the neighbors, and the evolving priorities already described in the time law charter.",
       "",
       "=== SENATOR PROFILE ===",
       "Name: " <> senator.name <> " (" <> senator.state <> ")",
@@ -59,6 +59,10 @@ pub fn senator_debate_prompt(
       "=== CURRENT BILL ===",
       "Bill " <> bill.id <> ": " <> bill.title,
       bill.summary,
+      "",
+      "This bill is intentionally framed as a living priorities charter for the AGATA time legislation stream.",
+      "You must interrogate each clause, argue over the principles it elevates, and use amendments to revise the priorities before asking the Senate to move on.",
+      "Think in terms of heavy amendments and long debate: identify what should stay, what must change, and how it should guide Todd and Delaney's immediate blocks and long-term rhythm.",
       "",
       "Identify key tensions and trade-offs in this bill summary. Consider competing priorities (costs vs preparedness,",
       "federal vs local control, timelines, labor impact, civil liberties, and regional inequities).",
@@ -82,7 +86,7 @@ pub fn senator_debate_prompt(
       vote_section,
       "",
       "=== INCOMING MESSAGES ===",
-      "You may react to constituents, press, archivists, or other senators. Keep references concise.",
+      "You may react to constituents, press, archivists, or other senators. Provide whatever level of detail is needed for clarity; length is fine when it conveys the facts.",
       messages_section,
       "",
       "=== TASK ===",
@@ -109,6 +113,7 @@ pub fn senator_debate_prompt(
       "- All votes are simple majorities. Amendments are voted on before the final bill and replace the bill text if adopted.",
       "- Use `procedure` = \"call_vote\" when debate has surfaced the necessary considerations and you want to move to a vote.",
       "- Reference specific prior arguments or messages when speaking; avoid generic filler.",
+      "- Your speech and amendments may be as long as necessary—provide fully drafted, precise legislation rather than shorthand notes.",
       "- If you've spoken before, acknowledge how your stance has evolved or respond directly to prior remarks before adding something new.",
     ],
     "\n",

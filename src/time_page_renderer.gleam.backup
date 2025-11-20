@@ -1,0 +1,1052 @@
+//// Full-page time legislation interface for AGATA.
+//// A beautiful, innovative dashboard for Todd and Delaney to report status,
+//// view active time bills, and track their work in real-time.
+
+import gleam/float
+import gleam/int
+import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/string
+import human_status
+import resource_state
+import senators
+import theme
+import time_bill
+
+/// Render the complete time legislation page
+pub fn render_time_page(
+  current_status: Option(human_status.HumanStatus),
+  active_bill: Option(time_bill.TimeBill),
+  recent_reports: List(human_status.BlockReport),
+  resources: resource_state.ResourceState,
+  all_bills: List(time_bill.TimeBill),
+  senators_list: List(senators.Senator),
+  current_theme: theme.Theme,
+) -> String {
+  let body_class = theme.body_class(current_theme)
+  let nav_links = render_nav_links(current_theme)
+  let theme_switcher = render_theme_switcher(current_theme)
+
+  let hero = render_hero(current_status, current_theme)
+  let status_input = render_status_input_section()
+  let active_block = render_active_block_section(active_bill, current_status)
+  let report_input = render_report_input_section(active_bill)
+  let timeline = render_timeline_section(recent_reports, all_bills)
+  let resources_panel = render_resources_panel(resources)
+  let senate_status = render_senate_status(senators_list)
+
+  "<!doctype html>
+   <html lang=\"en\">
+     <head>
+       <meta charset=\"utf-8\" />
+       <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+       <title>AGATA Time Legislation | Harmony Chamber</title>
+       <style>" <> time_stylesheet() <> "</style>
+     </head>
+     <body class=\"" <> body_class <> " time-page\">
+       <div class=\"time-container\">
+         " <> hero <> "
+         
+         <div class=\"time-grid\">
+           <div class=\"time-main\">
+             " <> status_input <> "
+             " <> active_block <> "
+             " <> report_input <> "
+             " <> timeline <> "
+           </div>
+           
+           <div class=\"time-sidebar\">
+             " <> resources_panel <> "
+             " <> senate_status <> "
+           </div>
+         </div>
+       </div>
+       " <> live_update_script() <> "
+     </body>
+   </html>"
+}
+
+fn render_hero(
+  status: Option(human_status.HumanStatus),
+  current_theme: theme.Theme,
+) -> String {
+  let status_indicator = case status {
+    None -> "<span class=\"status-badge status-waiting\">⏳ Awaiting Status</span>"
+    Some(s) -> {
+      let energy_avg = average_energy(s.todd_energy, s.delaney_energy)
+      let badge_class = case energy_avg {
+        time_bill.High -> "status-badge status-high"
+        time_bill.Medium -> "status-badge status-medium"
+        time_bill.Low -> "status-badge status-low"
+      }
+      "<span class=\"" <> badge_class <> "\">⚡ " <> time_bill.energy_to_string(
+        energy_avg,
+      ) <> " energy</span>"
+    }
+  }
+
+  let nav_links = render_nav_links(current_theme)
+  let theme_switcher = render_theme_switcher(current_theme)
+
+  "<header class=\"time-hero\">
+     <div class=\"hero-content\">
+       <div class=\"hero-top\">
+         <div>
+           <p class=\"eyebrow\">AGATA / Harmony Chamber</p>
+           <h1>⏱️ Time Legislation</h1>
+           <p class=\"hero-subtitle\">Micro-block governance for Todd & Delaney</p>
+         </div>
+         " <> status_indicator <> "
+       </div>
+       
+       <nav class=\"nav-links\">
+         " <> nav_links <> "
+       </nav>
+       
+       <div class=\"hero-meta\">
+         <span class=\"pill ghost-pill\">🔄 Auto-sync ~3s</span>
+         <span class=\"pill ghost-pill\">📊 Live tracking</span>
+         <span class=\"pill ghost-pill\">🎯 Micro-blocks: 5-15 min</span>
+       </div>
+       
+       " <> theme_switcher <> "
+     </div>
+   </header>"
+}
+
+fn render_status_input_section() -> String {
+  "<section class=\"time-card status-input-card\" id=\"status-input\">
+     <div class=\"card-header\">
+       <h2>📍 Report Current Status</h2>
+       <p>Tell the Senate where you are and what you need</p>
+     </div>
+     
+     <form class=\"status-form\" method=\"post\" action=\"/time/status\">
+       <div class=\"form-grid\">
+         <div class=\"form-group\">
+           <label>⏰ Time (local)</label>
+           <input type=\"text\" name=\"timestamp\" placeholder=\"2025-01-15 09:30 AM\" required />
+         </div>
+         
+         <div class=\"form-group\">
+           <label>⏱️ Block preference</label>
+           <select name=\"block_preference\">
+             <option value=\"5\">5 minutes</option>
+             <option value=\"10\" selected>10 minutes</option>
+             <option value=\"15\">15 minutes</option>
+             <option value=\"20\">20 minutes</option>
+             <option value=\"unsure\">Flexible</option>
+           </select>
+         </div>
+         
+         <div class=\"form-group full-width\">
+           <label>📍 Location</label>
+           <input type=\"text\" name=\"location\" placeholder=\"AGATA farmhouse\" required />
+         </div>
+       </div>
+       
+       <div class=\"energy-inputs\">
+         <div class=\"energy-group\">
+           <h3>Todd</h3>
+           <div class=\"energy-buttons\">
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"todd_energy\" value=\"low\" />
+               <span class=\"energy-low\">Low</span>
+             </label>
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"todd_energy\" value=\"medium\" checked />
+               <span class=\"energy-medium\">Medium</span>
+             </label>
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"todd_energy\" value=\"high\" />
+               <span class=\"energy-high\">High</span>
+             </label>
+           </div>
+           <input type=\"text\" name=\"todd_mood\" placeholder=\"Mood (1-2 words)\" />
+         </div>
+         
+         <div class=\"energy-group\">
+           <h3>Delaney</h3>
+           <div class=\"energy-buttons\">
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"delaney_energy\" value=\"low\" />
+               <span class=\"energy-low\">Low</span>
+             </label>
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"delaney_energy\" value=\"medium\" checked />
+               <span class=\"energy-medium\">Medium</span>
+             </label>
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"delaney_energy\" value=\"high\" />
+               <span class=\"energy-high\">High</span>
+             </label>
+           </div>
+           <input type=\"text\" name=\"delaney_mood\" placeholder=\"Mood (1-2 words)\" />
+         </div>
+       </div>
+       
+       <div class=\"form-grid\">
+         <div class=\"form-group\">
+           <label>🏃 Physical state</label>
+           <input type=\"text\" name=\"physical_state\" placeholder=\"at desk with coffee\" />
+         </div>
+         
+         <div class=\"form-group\">
+           <label>💻 Tools available</label>
+           <input type=\"text\" name=\"internet_tools\" placeholder=\"laptop, good wifi\" />
+         </div>
+       </div>
+       
+       <div class=\"form-group\">
+         <label>⚠️ Hard constraints (next 2-3 hours)</label>
+         <textarea name=\"constraints\" rows=\"2\" placeholder=\"Todd has call at 11 AM\"></textarea>
+       </div>
+       
+       <div class=\"form-group\">
+         <label>📝 Tasks on your mind</label>
+         <textarea name=\"tasks\" rows=\"3\" placeholder=\"One task per line\"></textarea>
+       </div>
+       
+       <button type=\"submit\" class=\"btn-primary\">
+         📤 Submit Status to Senate
+       </button>
+     </form>
+     
+     <details class=\"help-section\">
+       <summary>💡 How this works</summary>
+       <p>The Senate uses your status to design the next micro-block. Be honest about energy levels and constraints—the Senate will respect them and design realistic, achievable tasks.</p>
+     </details>
+   </section>"
+}
+
+fn render_active_block_section(
+  bill: Option(time_bill.TimeBill),
+  status: Option(human_status.HumanStatus),
+) -> String {
+  let content = case bill {
+    None -> render_no_active_block(status)
+    Some(b) -> render_active_block_content(b)
+  }
+
+  "<section class=\"time-card active-block-card\" id=\"active-block\">
+     " <> content <> "
+   </section>"
+}
+
+fn render_no_active_block(status: Option(human_status.HumanStatus)) -> String {
+  let message = case status {
+    None ->
+      "<p class=\"empty-message\">📋 Submit a status report above to receive your first time bill from the Senate.</p>"
+    Some(_) ->
+      "<p class=\"empty-message\">🏛️ The Senate is deliberating on your next micro-block. Check back in a moment...</p>
+       <div class=\"loading-indicator\">
+         <div class=\"spinner\"></div>
+         <p>Senators are reviewing your status and crafting the next time bill</p>
+       </div>"
+  }
+
+  "<div class=\"card-header\">
+     <h2>🎯 Active Time Block</h2>
+     <p>Your current assignment from the Senate</p>
+   </div>
+   <div class=\"empty-state\">
+     " <> message <> "
+   </div>"
+}
+
+fn render_active_block_content(bill: time_bill.TimeBill) -> String {
+  let next_block = time_bill.next_block(bill)
+
+  let block_content = case next_block {
+    None ->
+      "<div class=\"completion-celebration\">
+         <h3>🎉 All blocks completed!</h3>
+         <p>Submit a new status report to get your next assignment.</p>
+       </div>"
+    Some(block) -> render_micro_block_detail(block, bill)
+  }
+
+  let pillars =
+    bill.pillar_links
+    |> list.map(fn(p) {
+      "<span class=\"pill pillar-pill\">" <> pillar_emoji(p) <> " " <> time_bill.pillar_to_string(
+        p,
+      ) <> "</span>"
+    })
+    |> string.join(" ")
+
+  "<div class=\"card-header\">
+     <div>
+       <h2>🎯 Active Time Block</h2>
+       <p class=\"bill-id\">" <> escape_html(bill.id) <> "</p>
+     </div>
+     <span class=\"pill horizon-pill\">" <> horizon_emoji(
+    bill.time_horizon,
+  ) <> " " <> time_bill.time_horizon_to_string(bill.time_horizon) <> "</span>
+   </div>
+   
+   <div class=\"bill-header\">
+     <h3>" <> escape_html(bill.title) <> "</h3>
+     <p class=\"bill-purpose\">" <> escape_html(bill.purpose) <> "</p>
+     <div class=\"bill-pillars\">" <> pillars <> "</div>
+   </div>
+   
+   " <> block_content
+}
+
+fn render_micro_block_detail(
+  block: time_bill.MicroBlock,
+  bill: time_bill.TimeBill,
+) -> String {
+  let duration_class = case block.duration_minutes {
+    5 -> "duration-short"
+    10 -> "duration-medium"
+    _ -> "duration-long"
+  }
+
+  let todd_section = render_person_tasks("Todd", block.assignees.todd_tasks)
+  let delaney_section =
+    render_person_tasks("Delaney", block.assignees.delaney_tasks)
+  let joint_section = render_joint_tasks(block.assignees.joint_tasks)
+
+  let instructions =
+    block.instructions
+    |> list.index_map(fn(instr, idx) {
+      "<li class=\"instruction-step\">
+         <span class=\"step-number\">" <> int.to_string(idx + 1) <> "</span>
+         <span class=\"step-text\">" <> escape_html(instr) <> "</span>
+       </li>"
+    })
+    |> string.join("")
+
+  let artifacts =
+    block.expected_artifacts
+    |> list.map(fn(art) {
+      "<li class=\"artifact-item\">📄 " <> escape_html(art) <> "</li>"
+    })
+    |> string.join("")
+
+  "<div class=\"micro-block-detail\">
+     <div class=\"block-meta\">
+       <span class=\"pill duration-pill " <> duration_class <> "\">
+         ⏱️ " <> int.to_string(block.duration_minutes) <> " minutes
+       </span>
+       <span class=\"limitation-badge\">
+         ⚠️ " <> escape_html(block.limitation_note) <> "
+       </span>
+     </div>
+     
+     <div class=\"assignments-section\">
+       <h4>👥 Assignments</h4>
+       <div class=\"assignments-grid\">
+         " <> todd_section <> "
+         " <> delaney_section <> "
+         " <> joint_section <> "
+       </div>
+     </div>
+     
+     <div class=\"instructions-section\">
+       <h4>📋 Step-by-Step Instructions</h4>
+       <ol class=\"instruction-list\">" <> instructions <> "</ol>
+     </div>
+     
+     <div class=\"artifacts-section\">
+       <h4>📦 Expected Artifacts</h4>
+       <ul class=\"artifact-list\">" <> artifacts <> "</ul>
+     </div>
+     
+     <div class=\"reflection-section\">
+       <h4>💭 Reflection Prompts (for after)</h4>
+       <ul class=\"reflection-list\">"
+  <> list.map(block.reflection_prompts, fn(prompt) {
+    "<li>" <> escape_html(prompt) <> "</li>"
+  })
+  |> string.join("")
+  <> "</ul>
+     </div>
+     
+     <div class=\"block-actions\">
+       <a href=\"#report-input\" class=\"btn-primary\">
+         ✅ Complete & Report
+       </a>
+     </div>
+   </div>"
+}
+
+fn render_person_tasks(person: String, tasks: List(String)) -> String {
+  case tasks {
+    [] -> ""
+    _ ->
+      "<div class=\"person-tasks\">
+         <h5>" <> person <> "</h5>
+         <ul>"
+      <> list.map(tasks, fn(task) {
+        "<li>• " <> escape_html(task) <> "</li>"
+      })
+      |> string.join("")
+      <> "</ul>
+       </div>"
+  }
+}
+
+fn render_joint_tasks(tasks: List(String)) -> String {
+  case tasks {
+    [] -> ""
+    _ ->
+      "<div class=\"person-tasks joint-tasks\">
+         <h5>🤝 Together</h5>
+         <ul>"
+      <> list.map(tasks, fn(task) {
+        "<li>• " <> escape_html(task) <> "</li>"
+      })
+      |> string.join("")
+      <> "</ul>
+       </div>"
+  }
+}
+
+fn render_report_input_section(bill: Option(time_bill.TimeBill)) -> String {
+  let form_state = case bill {
+    None -> "disabled"
+    Some(_) -> ""
+  }
+
+  "<section class=\"time-card report-input-card\" id=\"report-input\">
+     <div class=\"card-header\">
+       <h2>✅ Report Block Completion</h2>
+       <p>Tell the Senate what happened</p>
+     </div>
+     
+     <form class=\"report-form\" method=\"post\" action=\"/time/report\" " <> form_state <> ">
+       <div class=\"form-grid\">
+         <div class=\"form-group\">
+           <label>⏰ Time completed</label>
+           <input type=\"text\" name=\"timestamp\" placeholder=\"2025-01-15 09:45 AM\" required />
+         </div>
+         
+         <div class=\"form-group\">
+           <label>⏱️ Actual time used</label>
+           <input type=\"number\" name=\"actual_minutes\" placeholder=\"12\" min=\"1\" max=\"60\" required />
+         </div>
+       </div>
+       
+       <div class=\"energy-inputs\">
+         <div class=\"energy-group\">
+           <h3>Todd (after)</h3>
+           <div class=\"energy-buttons\">
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"todd_energy_after\" value=\"low\" />
+               <span class=\"energy-low\">Low</span>
+             </label>
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"todd_energy_after\" value=\"medium\" checked />
+               <span class=\"energy-medium\">Medium</span>
+             </label>
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"todd_energy_after\" value=\"high\" />
+               <span class=\"energy-high\">High</span>
+             </label>
+           </div>
+         </div>
+         
+         <div class=\"energy-group\">
+           <h3>Delaney (after)</h3>
+           <div class=\"energy-buttons\">
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"delaney_energy_after\" value=\"low\" />
+               <span class=\"energy-low\">Low</span>
+             </label>
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"delaney_energy_after\" value=\"medium\" checked />
+               <span class=\"energy-medium\">Medium</span>
+             </label>
+             <label class=\"energy-btn\">
+               <input type=\"radio\" name=\"delaney_energy_after\" value=\"high\" />
+               <span class=\"energy-high\">High</span>
+             </label>
+           </div>
+         </div>
+       </div>
+       
+       <div class=\"form-group\">
+         <label>✅ What got done</label>
+         <textarea name=\"completed\" rows=\"3\" placeholder=\"One accomplishment per line\" required></textarea>
+       </div>
+       
+       <div class=\"form-group\">
+         <label>⚠️ Where you got stuck (if any)</label>
+         <textarea name=\"stuck\" rows=\"2\" placeholder=\"Blockers or challenges\"></textarea>
+       </div>
+       
+       <div class=\"form-group\">
+         <label>💡 New needs or tasks that emerged</label>
+         <textarea name=\"new_needs\" rows=\"2\" placeholder=\"What came up during the work\"></textarea>
+       </div>
+       
+       <button type=\"submit\" class=\"btn-primary\">
+         📤 Submit Report to Senate
+       </button>
+     </form>
+   </section>"
+}
+
+fn render_timeline_section(
+  reports: List(human_status.BlockReport),
+  bills: List(time_bill.TimeBill),
+) -> String {
+  let content = case reports {
+    [] ->
+      "<div class=\"empty-state\">
+         <p class=\"empty-message\">📊 Your work timeline will appear here as you complete blocks.</p>
+       </div>"
+    _ ->
+      "<div class=\"timeline\">"
+      <> list.take(reports, 10)
+      |> list.map(render_timeline_item)
+      |> string.join("")
+      <> "</div>"
+  }
+
+  "<section class=\"time-card timeline-card\">
+     <div class=\"card-header\">
+       <h2>📊 Work Timeline</h2>
+       <p>Recent completed blocks</p>
+     </div>
+     " <> content <> "
+   </section>"
+}
+
+fn render_timeline_item(report: human_status.BlockReport) -> String {
+  let completed_items =
+    report.completed
+    |> list.map(fn(item) { "<li>✅ " <> escape_html(item) <> "</li>" })
+    |> string.join("")
+
+  let stuck_section = case report.stuck_on {
+    [] -> ""
+    items ->
+      "<div class=\"stuck-section\">
+         <strong>⚠️ Stuck on:</strong>
+         <ul>"
+      <> list.map(items, fn(item) { "<li>" <> escape_html(item) <> "</li>" })
+      |> string.join("")
+      <> "</ul>
+       </div>"
+  }
+
+  "<article class=\"timeline-item\">
+     <div class=\"timeline-marker\"></div>
+     <div class=\"timeline-content\">
+       <div class=\"timeline-header\">
+         <span class=\"timeline-time\">⏰ " <> escape_html(
+    report.timestamp,
+  ) <> "</span>
+         <span class=\"pill duration-pill\">⏱️ " <> int.to_string(
+    report.actual_minutes,
+  ) <> " min</span>
+       </div>
+       <div class=\"timeline-energy\">
+         <span>Todd: " <> time_bill.energy_to_string(report.todd_energy) <> "</span>
+         <span>Delaney: " <> time_bill.energy_to_string(
+    report.delaney_energy,
+  ) <> "</span>
+       </div>
+       <ul class=\"timeline-completed\">" <> completed_items <> "</ul>
+       " <> stuck_section <> "
+     </div>
+   </article>"
+}
+
+fn render_resources_panel(resources: resource_state.ResourceState) -> String {
+  let tracking = resources.time_tracking
+  let total_hours = int.to_float(tracking.total_minutes_completed) /. 60.0
+  let todd_hours = int.to_float(tracking.todd_minutes) /. 60.0
+  let delaney_hours = int.to_float(tracking.delaney_minutes) /. 60.0
+
+  let allocated = resource_state.total_allocated(resources)
+  let unallocated = resource_state.unallocated_budget(resources)
+  let budget_percent =
+    case resources.available_budget >. 0.0 {
+      True -> { allocated /. resources.available_budget *. 100.0 }
+      False -> 0.0
+    }
+    |> float.round
+    |> float.to_string
+
+  "<section class=\"sidebar-card resources-card\">
+     <h3>💰 Resources</h3>
+     
+     <div class=\"resource-section\">
+       <h4>Budget</h4>
+       <div class=\"budget-bar\">
+         <div class=\"budget-fill\" style=\"width: " <> budget_percent <> "%\"></div>
+       </div>
+       <div class=\"budget-stats\">
+         <div class=\"stat\">
+           <span class=\"stat-label\">Available</span>
+           <span class=\"stat-value\">$" <> format_float(
+    resources.available_budget,
+  ) <> "</span>
+         </div>
+         <div class=\"stat\">
+           <span class=\"stat-label\">Allocated</span>
+           <span class=\"stat-value\">$" <> format_float(allocated) <> "</span>
+         </div>
+       </div>
+     </div>
+     
+     <div class=\"resource-section\">
+       <h4>Time Tracked</h4>
+       <div class=\"time-stats\">
+         <div class=\"stat-large\">
+           <span class=\"stat-value-large\">" <> format_float(total_hours) <> "</span>
+           <span class=\"stat-label\">total hours</span>
+         </div>
+         <div class=\"stat-grid\">
+           <div class=\"stat\">
+             <span class=\"stat-label\">Todd</span>
+             <span class=\"stat-value\">" <> format_float(todd_hours) <> "h</span>
+           </div>
+           <div class=\"stat\">
+             <span class=\"stat-label\">Delaney</span>
+             <span class=\"stat-value\">" <> format_float(delaney_hours) <> "h</span>
+           </div>
+           <div class=\"stat\">
+             <span class=\"stat-label\">Blocks</span>
+             <span class=\"stat-value\">" <> int.to_string(
+    tracking.blocks_completed,
+  ) <> "</span>
+           </div>
+         </div>
+       </div>
+     </div>
+   </section>"
+}
+
+fn render_senate_status(senators_list: List(senators.Senator)) -> String {
+  let count = list.length(senators_list)
+
+  "<section class=\"sidebar-card senate-card\">
+     <h3>🏛️ Senate Status</h3>
+     <div class=\"senate-info\">
+       <div class=\"stat-large\">
+         <span class=\"stat-value-large\">" <> int.to_string(count) <> "</span>
+         <span class=\"stat-label\">senators</span>
+       </div>
+       <p class=\"senate-note\">
+         The full AGATA Senate is reviewing your status and crafting time bills 
+         that balance immediate needs with long-term vision.
+       </p>
+       <a href=\"/senators\" class=\"btn-secondary\">
+         View Senate Roster →
+       </a>
+     </div>
+   </section>"
+}
+
+fn render_nav_links(current_theme: theme.Theme) -> String {
+  [
+    nav_link("/", "Chamber", current_theme),
+    nav_link("/time", "Time Legislation", current_theme),
+    nav_link("/senators", "Senators", current_theme),
+    nav_link("/docket", "Docket", current_theme),
+  ]
+  |> string.join("")
+}
+
+fn nav_link(path: String, label: String, current_theme: theme.Theme) -> String {
+  "<a href=\""
+  <> path
+  <> theme.query_suffix(current_theme)
+  <> "\">"
+  <> label
+  <> "</a>"
+}
+
+fn render_theme_switcher(current_theme: theme.Theme) -> String {
+  let buttons =
+    theme.available()
+    |> list.map(fn(option) {
+      let active = option == current_theme
+      let href = case theme.query_suffix(option) {
+        "" -> "/time"
+        suffix -> "/time" <> suffix
+      }
+
+      "<a class=\""
+      <> theme_button_class(active)
+      <> "\" href=\""
+      <> href
+      <> "\">"
+      <> theme.label(option)
+      <> "</a>"
+    })
+    |> string.join("")
+
+  "<div class=\"theme-switcher\">
+     <span class=\"theme-label\">Theme:</span>
+     " <> buttons <> "
+   </div>"
+}
+
+fn theme_button_class(active: Bool) -> String {
+  case active {
+    True -> "theme-button is-active"
+    False -> "theme-button"
+  }
+}
+
+// Helper functions
+
+fn average_energy(
+  e1: time_bill.EnergyLevel,
+  e2: time_bill.EnergyLevel,
+) -> time_bill.EnergyLevel {
+  case e1, e2 {
+    time_bill.High, time_bill.High -> time_bill.High
+    time_bill.Low, time_bill.Low -> time_bill.Low
+    _, _ -> time_bill.Medium
+  }
+}
+
+fn pillar_emoji(pillar: time_bill.Pillar) -> String {
+  case pillar {
+    time_bill.Farm -> "🌾"
+    time_bill.Film -> "🎬"
+    time_bill.Music -> "🎵"
+    time_bill.Residency -> "🏠"
+    time_bill.DigitalLab -> "💻"
+    time_bill.MeshNetwork -> "🌐"
+    time_bill.Institute -> "🎓"
+    time_bill.Governance -> "⚖️"
+    time_bill.Ritual -> "🕯️"
+    time_bill.History -> "📚"
+    time_bill.Education -> "📖"
+  }
+}
+
+fn horizon_emoji(horizon: time_bill.TimeHorizon) -> String {
+  case horizon {
+    time_bill.ThisHour -> "⚡"
+    time_bill.Today -> "📅"
+    time_bill.ThisWeek -> "📆"
+    time_bill.ThisMonth -> "🗓️"
+    time_bill.ThisQuarter -> "📊"
+    time_bill.LongTerm -> "🌟"
+  }
+}
+
+fn format_float(value: Float) -> String {
+  let rounded = float.round(value *. 100.0) /. 100.0
+  float.to_string(rounded)
+}
+
+fn escape_html(text: String) -> String {
+  text
+  |> string.replace("&", "&amp;")
+  |> string.replace("<", "<")
+  |> string.replace(">", ">")
+  |> string.replace("\"", """)
+}
+
+fn live_update_script() -> String {
+  "<script>
+     async function refreshTimePage() {
+       if (document.hidden) return;
+       try {
+         const response = await fetch(window.location.href, { 
+           headers: { 'X-Harmony-Refresh': '1' } 
+         });
+         if (!response.ok) return;
+         
+         // For now, just reload the page
+         // TODO: Implement partial updates
+         location.reload();
+       } catch (_error) {
+         // Ignore transient network issues
+       }
+     }
+
+     setInterval(refreshTimePage, 3000);
+     window.addEventListener('visibilitychange', () => {
+       if (!document.hidden) refreshTimePage();
+     });
+   </script>"
+}
+
+fn time_stylesheet() -> String {
+  "/* Time Legislation Page Styles */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  body.time-page {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    min-height: 100vh;
+  }
+  
+  .time-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+  
+  .time-hero {
+    background: white;
+    border-radius: 1rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+  
+  .hero-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+  }
+  
+  .eyebrow {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    color: #6b7280;
+    margin-bottom: 0.5rem;
+  }
+  
+  .time-hero h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 0.5rem;
+  }
+  
+  .hero-subtitle {
+    color: #6b7280;
+    font-size: 1.1rem;
+  }
+  
+  .status-badge {
+    padding: 0.5rem 1rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  
+  .status-high { background: #d1fae5; color: #065f46; }
+  .status-medium { background: #fef3c7; color: #92400e; }
+  .status-low { background: #fee2e2; color: #991b1b; }
+  .status-waiting { background: #e0e7ff; color: #3730a3; }
+  
+  .time-grid {
+    display: grid;
+    grid-template-columns: 1fr 350px;
+    gap: 2rem;
+  }
+  
+  .time-card, .sidebar-card {
+    background: white;
+    border-radius: 1rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+  
+  .card-header h2 {
+    font-size: 1.5rem;
+    color: #1f2937;
+    margin-bottom: 0.5rem;
+  }
+  
+  .card-header p {
+    color: #6b7280;
+    margin-bottom: 1.5rem;
+  }
+  
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  
+  .form-group.full-width {
+    grid-column: 1 / -1;
+  }
+  
+  .form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: #374151;
+  }
+  
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+  }
+  
+  .energy-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+  }
+  
+  .energy-group h3 {
+    font-size: 1.1rem;
+    margin-bottom: 0.75rem;
+    color: #1f2937;
+  }
+  
+  .energy-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .energy-btn {
+    flex: 1;
+    cursor: pointer;
+  }
+  
+  .energy-btn input {
+    display: none;
+  }
+  
+  .energy-btn span {
+    display: block;
+    padding: 0.5rem;
+    text-align: center;
+    border-radius: 0.5rem;
+    border: 2px solid #e5e7eb;
+    transition: all 0.2s;
+  }
+  
+  .energy-btn input:checked + span {
+    border-color: currentColor;
+    font-weight: 600;
+  }
+  
+  .energy-low { color: #dc2626; }
+  .energy-medium { color: #f59e0b; }
+  .energy-high { color: #10b981; }
+  
+  .btn-primary, .btn-secondary {
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    display: inline-block;
+  }
+  
+  .btn-primary {
+    background: #3b82f6;
+    color: white;
+  }
+  
+  .btn-primary:hover {
+    background: #2563eb;
+  }
+  
+  .btn-secondary {
+    background: #e5e7eb;
+    color: #374151;
+  }
+  
+  .pill {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  
+  .ghost-pill {
+    background: #f3f4f6;
+    color: #6b7280;
+  }
+  
+  .pillar-pill {
+    background: #dbeafe;
+    color: #1e40af;
+    margin-right: 0.5rem;
+  }
+  
+  .duration-pill {
+    font-weight: 600;
+  }
+  
+  .duration-short { background: #d1fae5; color: #065f46; }
+  .duration-medium { background: #fef3c7; color: #92400e; }
+  .duration-long { background: #fee2e2; color: #991b1b; }
+  
+  .empty-state {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: #6b7280;
+  }
+  
+  .spinner {
+    width: 40px;
+    height: 40px;
+    margin: 1rem auto;
+    border: 4px solid #e5e7eb;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  .timeline {
+    position: relative;
+    padding-left: 2rem;
+  }
+  
+  .timeline-item {
+    position: relative;
+    padding-bottom: 2rem;
+  }
+  
+  .timeline-marker {
+    position: absolute;
+    left: -2rem;
+    width: 12px;
+    height: 12px;
+    background: #3b82f6;
+    border-radius: 50%;
+    top: 0.5rem;
+  }
+  
+  .timeline-item::before {
+    content: \"\";
+    position: absolute;
+    left: -1.45rem;
+    top: 1.5rem;
+    bottom: 0;
+    width: 2px;
+    background: #e5e7eb;
+  }
+  
+  .timeline-item:last-child::before {
+    display: none;
+  }
+  
+  @media (max-width: 1024px) {
+    .time-grid {
+      grid-template-columns: 1fr;
+    }
+    
+    .form-grid, .energy-inputs {
+      grid-template-columns: 1fr;
+    }
+  }
+  "
