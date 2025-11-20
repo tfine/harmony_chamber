@@ -2,6 +2,7 @@
 //// Provides a live-updating window showing Todd and Delaney's current status,
 //// active time bills, and recent block completions.
 
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -340,7 +341,7 @@ fn energy_class(level: time_bill.EnergyLevel) -> String {
 /// Helper to format float with 2 decimals
 fn float_to_string(value: Float) -> String {
   // Simple formatting - Gleam doesn't have built-in decimal formatting
-  let rounded = float.round(value *. 100.0) /. 100.0
+  let rounded = int.to_float(float.round(value *. 100.0)) /. 100.0
   float.to_string(rounded)
 }
 
@@ -657,3 +658,10 @@ pub fn time_status_styles() -> String {
   .status-template pre {
     background: #2c3e50;
     color: #ecf0f1;
+  }
+
+  .status-template code {
+    font-family: monospace;
+  }
+"
+}

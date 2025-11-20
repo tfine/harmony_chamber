@@ -1,5 +1,7 @@
 //// Manages the state of the AGATA time legislation session in a separate process.
 //// This allows for concurrent access and updates to the TimeSession data.
+//// The single-process mailbox keeps writes serialized so the Senate cannot
+//// double-apply reports or bills and ensures updates remain predictable.
 
 import gleam/erlang/process
 import gleam/io

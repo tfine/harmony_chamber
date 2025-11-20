@@ -300,6 +300,13 @@ Senate agents receive specialized prompts for time legislation:
    - Context assembly from status + memory
    - Output parsing and validation
 
+### 🧭 AI Governance Layer
+
+- **Autopilot + Time Charter**: The running Senate debates the "AGATA Time Priorities Charter" while issuing micro-block bills. Heavy amendments are encouraged so principles stay explicit as new work arrives.
+- **Immediate orders**: Each status submission seeds a fallback time bill so humans always receive an actionable block even if long-form debate is still in flight.
+- **Persistence**: Time-session state, bills, and reports are held in the time session manager and can be snapshotted alongside the main chamber to survive restarts.
+- **Fragments-first UI**: The time page updates in small fragments (order banner, timeline, sidebar) to keep instructions visible without jarring full-page refreshes.
+
 6. **API routes** (`src/time_api.gleam`)
    - POST /time/status - Submit status report
    - POST /time/report - Submit block report

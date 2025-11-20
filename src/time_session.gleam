@@ -1,6 +1,9 @@
 //// State management for AGATA time legislation sessions.
 //// This module defines the TimeSession type and functions for managing
 //// the state of micro-block governance.
+//// It is intentionally lightweight: the time session lives alongside the
+//// traditional chamber session so the Senate can direct human time without
+//// blocking on heavier debate flows.
 
 import gleam/int
 import gleam/list
@@ -60,7 +63,9 @@ pub fn record_human_status(
   )
 }
 
-/// Records a new block report and updates the active time bill and resources.
+/// Records a new block report, marks the current micro-block complete,
+/// and refreshes resource tracking. This is the main checkpoint that
+/// promotes a bill into `Completed` when all blocks are done.
 pub fn record_block_report(
   session: TimeSession,
   report: human_status.BlockReport,

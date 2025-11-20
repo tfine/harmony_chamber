@@ -50,6 +50,7 @@ fn handle_request(
     ["docket"] -> handle_docket(manager, request)
     ["history"] -> handle_history(manager, request)
     ["autopilot", action] -> handle_autopilot_action(action, autop, request)
+    ["health"] -> wisp.response(200) |> wisp.string_body("ok")
     ["time"] -> handle_time_page(roster, time_manager, request)
     ["time", "status"] -> handle_time_status(time_manager, request)
     ["time", "report"] -> handle_time_report(time_manager, request)
