@@ -22,6 +22,8 @@ pub type TimeSession {
     active_time_bill: Option(time_bill.TimeBill),
     /// A list of recently completed block reports.
     recent_block_reports: List(human_status.BlockReport),
+    /// External task completions (e.g., Todoist) mapped back to Harmony.
+    completed_external_tasks: List(CompletedTask),
     /// The current state of resources (budget, time tracking).
     resources: resource_state.ResourceState,
     /// All time bills that have been proposed or completed.
@@ -33,12 +35,21 @@ pub type TimeSession {
   )
 }
 
+pub type CompletedTask {
+  CompletedTask(
+    harmony_uid: String,
+    task_id: String,
+    completed_at: String,
+  )
+}
+
 /// Initializes a new TimeSession with default values.
 pub fn initial_time_session() -> TimeSession {
   TimeSession(
     current_human_status: None,
     active_time_bill: None,
     recent_block_reports: [],
+    completed_external_tasks: [],
     resources: resource_state.agata_initial(),
     all_time_bills: [],
     next_bill_id_num: 1,
@@ -168,6 +179,18 @@ pub fn record_block_report(
       }
     }
   }
+}
+
+/// Records a completion arriving from an external task system (e.g., Todoist).
+pub fn record_external_completion(
+  session: TimeSession,
+  completion: CompletedTask,
+) -> TimeSession {
+  TimeSession(
+    ..session,
+    completed_external_tasks: [completion, ..session.completed_external_tasks],
+    last_error: None,
+  )
 }
 
 /// Sets a time bill as active.

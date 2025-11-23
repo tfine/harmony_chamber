@@ -12,6 +12,7 @@ import resource_state
 import senators
 import theme
 import time_bill
+import time_session
 
 pub type TimeFragments {
   TimeFragments(
@@ -28,6 +29,7 @@ pub fn render_time_page(
   current_status: Option(human_status.HumanStatus),
   active_bill: Option(time_bill.TimeBill),
   recent_reports: List(human_status.BlockReport),
+  completed_tasks: List(time_session.CompletedTask),
   resources: resource_state.ResourceState,
   all_bills: List(time_bill.TimeBill),
   senators_list: List(senators.Senator),
@@ -41,7 +43,7 @@ pub fn render_time_page(
   let status_input = render_status_input_section()
   let active_block = render_active_block_section(active_bill, current_status)
   let report_input = render_report_input_section(active_bill)
-  let timeline = render_timeline_section(recent_reports, all_bills)
+  let timeline = render_timeline_section(recent_reports, all_bills, completed_tasks)
   let resources_panel = render_resources_panel(resources)
   let senate_status = render_senate_status(senators_list)
   let order_banner = render_time_order_banner(active_bill)
@@ -90,6 +92,7 @@ pub fn render_time_fragments(
   current_status: Option(human_status.HumanStatus),
   active_bill: Option(time_bill.TimeBill),
   recent_reports: List(human_status.BlockReport),
+  completed_tasks: List(time_session.CompletedTask),
   resources: resource_state.ResourceState,
   all_bills: List(time_bill.TimeBill),
   senators_list: List(senators.Senator),
@@ -98,7 +101,7 @@ pub fn render_time_fragments(
   TimeFragments(
     order_banner: render_time_order_banner(active_bill),
     active_block: render_active_block_section(active_bill, current_status),
-    timeline: render_timeline_section(recent_reports, all_bills),
+    timeline: render_timeline_section(recent_reports, all_bills, completed_tasks),
     resources: render_resources_panel(resources),
     senate_status: render_senate_status(senators_list),
   )
@@ -729,8 +732,9 @@ fn render_report_input_section(bill: Option(time_bill.TimeBill)) -> String {
 fn render_timeline_section(
   reports: List(human_status.BlockReport),
   _bills: List(time_bill.TimeBill),
+  completed_tasks: List(time_session.CompletedTask),
 ) -> String {
-  let content = case reports {
+  let report_content = case reports {
     [] ->
       "<div class=\"empty-state\">
          <p class=\"empty-message\">📊 Your work timeline will appear here as you complete blocks.</p>
@@ -743,13 +747,42 @@ fn render_timeline_section(
       <> "</div>"
   }
 
+  let completion_content = case completed_tasks {
+    [] ->
+      "<div class=\"empty-state\">
+         <p class=\"empty-message\">✅ No external task completions yet.</p>
+       </div>"
+    _ ->
+      "<ul class=\"external-completions\">"
+      <> list.take(completed_tasks, 10)
+      |> list.map(render_completion_item)
+      |> string.join("")
+      <> "</ul>"
+  }
+
   "<section class=\"time-card timeline-card\">
      <div class=\"card-header\">
        <h2>📊 Work Timeline</h2>
        <p>Recent completed blocks</p>
      </div>
-     " <> content <> "
+     " <> report_content <> "
+
+     <div class=\"card-header secondary\">
+       <h3>External Task Completions</h3>
+       <p>Todoist and other adapters reporting done work</p>
+     </div>
+     " <> completion_content <> "
    </section>"
+}
+
+fn render_completion_item(item: time_session.CompletedTask) -> String {
+  "<li><strong>"
+  <> escape_html(item.harmony_uid)
+  <> "</strong> ("
+  <> escape_html(item.task_id)
+  <> ") — "
+  <> escape_html(item.completed_at)
+  <> "</li>"
 }
 
 fn render_timeline_item(report: human_status.BlockReport) -> String {

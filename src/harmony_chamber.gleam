@@ -1,7 +1,9 @@
 import autopilot
+import constitution
 import debate
 import demo
 import envoy
+import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/http
 import gleam/http/request as http_request
@@ -13,6 +15,8 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import html_renderer
 import human_status
+import implementation_manager
+import implementation
 import llm_client
 import memory
 import mist
@@ -25,9 +29,9 @@ import session_store
 import speaker_rotation
 import theme
 import time_bill
+import time_page_renderer
 import time_session
 import time_session_manager
-import time_page_renderer
 import wisp
 import wisp/wisp_mist
 
@@ -38,10 +42,11 @@ fn handle_request(
   roster: List(senators.Senator),
   office: office.Office,
   time_manager: time_session_manager.Manager,
+  implementations: implementation_manager.Manager,
   request: wisp.Request,
 ) -> wisp.Response {
   case wisp.path_segments(request) {
-    [] -> handle_home(manager, autop, roster, request)
+    [] -> handle_home(manager, autop, roster, implementations, request)
     ["senators"] -> handle_senators_index(manager, office, roster, request)
     ["senators", id] ->
       handle_senator_profile(manager, office, agents, roster, id, request)
@@ -54,7 +59,13 @@ fn handle_request(
     ["time"] -> handle_time_page(roster, time_manager, request)
     ["time", "status"] -> handle_time_status(time_manager, request)
     ["time", "report"] -> handle_time_report(time_manager, request)
-    ["time", "fragments"] -> handle_time_fragments(roster, time_manager, request)
+    ["time", "fragments"] ->
+      handle_time_fragments(roster, time_manager, request)
+    ["task_completed"] -> handle_task_completed(time_manager, request)
+    ["api", "v1", "implementations", "status"] ->
+      handle_implementation_status(implementations, request)
+    ["api", "v1", "implementations"] ->
+      handle_implementation_list(implementations, request)
     _ -> wisp.not_found()
   }
 }
@@ -63,12 +74,14 @@ fn handle_home(
   manager: session_manager.Manager,
   autop: autopilot.Autopilot,
   roster: List(senators.Senator),
+  implementations: implementation_manager.Manager,
   request: wisp.Request,
 ) -> wisp.Response {
   wisp.require_method(request, http.Get, fn() {
     let query_params = wisp.get_query(request)
     let current_theme = theme.from_query_params(query_params)
     let current_session = session_manager.current(manager)
+    let impl_records = implementation_manager.all(implementations)
     let fragments =
       html_renderer.live_fragments(
         current_session,
@@ -77,6 +90,7 @@ fn handle_home(
         current_theme,
         query_params,
         time_legislation_enabled(),
+        impl_records,
       )
 
     case live_refresh_requested(request) {
@@ -228,6 +242,7 @@ fn handle_time_page(
     let current_status = time_session_state.current_human_status
     let active_bill = time_session_state.active_time_bill
     let recent_reports = time_session_state.recent_block_reports
+    let completed_tasks = time_session_state.completed_external_tasks
     let resources = time_session_state.resources
     let all_bills = time_session_state.all_time_bills
 
@@ -236,6 +251,7 @@ fn handle_time_page(
         current_status,
         active_bill,
         recent_reports,
+        completed_tasks,
         resources,
         all_bills,
         roster,
@@ -254,10 +270,13 @@ fn handle_time_status(
   wisp.require_method(request, http.Post, fn() {
     wisp.require_form(request, fn(form) {
       let timestamp = field_value(form.values, "timestamp")
-      let block_pref = parse_block_preference(field_value(form.values, "block_preference"))
+      let block_pref =
+        parse_block_preference(field_value(form.values, "block_preference"))
       let location = field_value(form.values, "location")
-      let todd_energy = parse_energy_level(field_value(form.values, "todd_energy"))
-      let delaney_energy = parse_energy_level(field_value(form.values, "delaney_energy"))
+      let todd_energy =
+        parse_energy_level(field_value(form.values, "todd_energy"))
+      let delaney_energy =
+        parse_energy_level(field_value(form.values, "delaney_energy"))
       let todd_mood = field_value(form.values, "todd_mood")
       let delaney_mood = field_value(form.values, "delaney_mood")
       let physical_state = field_value(form.values, "physical_state")
@@ -265,23 +284,25 @@ fn handle_time_status(
       let todd_needs = split_lines(field_value(form.values, "todd_needs"))
       let delaney_needs = split_lines(field_value(form.values, "delaney_needs"))
       let current_tasks = split_lines(field_value(form.values, "tasks"))
-      let hard_constraints = split_lines(field_value(form.values, "constraints"))
+      let hard_constraints =
+        split_lines(field_value(form.values, "constraints"))
 
-      let status = human_status.HumanStatus(
-        timestamp: timestamp,
-        block_preference: block_pref,
-        location: location,
-        todd_energy: todd_energy,
-        delaney_energy: delaney_energy,
-        todd_mood: todd_mood,
-        delaney_mood: delaney_mood,
-        physical_state: physical_state,
-        internet_tools: internet_tools,
-        todd_needs: todd_needs,
-        delaney_needs: delaney_needs,
-        current_tasks: current_tasks,
-        hard_constraints: hard_constraints,
-      )
+      let status =
+        human_status.HumanStatus(
+          timestamp: timestamp,
+          block_preference: block_pref,
+          location: location,
+          todd_energy: todd_energy,
+          delaney_energy: delaney_energy,
+          todd_mood: todd_mood,
+          delaney_mood: delaney_mood,
+          physical_state: physical_state,
+          internet_tools: internet_tools,
+          todd_needs: todd_needs,
+          delaney_needs: delaney_needs,
+          current_tasks: current_tasks,
+          hard_constraints: hard_constraints,
+        )
 
       let updated_session =
         time_session_manager.record_human_status(time_manager, status)
@@ -301,27 +322,153 @@ fn handle_time_report(
     wisp.require_form(request, fn(form) {
       let timestamp = field_value(form.values, "timestamp")
       let actual_minutes = parse_int(field_value(form.values, "actual_minutes"))
-      let todd_energy = parse_energy_level(field_value(form.values, "todd_energy_after"))
-      let delaney_energy = parse_energy_level(field_value(form.values, "delaney_energy_after"))
+      let todd_energy =
+        parse_energy_level(field_value(form.values, "todd_energy_after"))
+      let delaney_energy =
+        parse_energy_level(field_value(form.values, "delaney_energy_after"))
       let completed = split_lines(field_value(form.values, "completed"))
       let stuck = split_lines(field_value(form.values, "stuck"))
       let new_needs = split_lines(field_value(form.values, "new_needs"))
 
-      let report = human_status.BlockReport(
-        timestamp: timestamp,
-        actual_minutes: actual_minutes,
-        todd_energy: todd_energy,
-        delaney_energy: delaney_energy,
-        completed: completed,
-        stuck_on: stuck,
-        new_needs: new_needs,
-      )
+      let report =
+        human_status.BlockReport(
+          timestamp: timestamp,
+          actual_minutes: actual_minutes,
+          todd_energy: todd_energy,
+          delaney_energy: delaney_energy,
+          completed: completed,
+          stuck_on: stuck,
+          new_needs: new_needs,
+        )
 
       let _ = time_session_manager.record_block_report(time_manager, report)
       let target = "/time" <> theme.query_suffix(current_theme)
       wisp.redirect(target)
     })
   })
+}
+
+fn handle_task_completed(
+  time_manager: time_session_manager.Manager,
+  request: wisp.Request,
+) -> wisp.Response {
+  case authorized(request) {
+    False -> wisp.response(401) |> wisp.string_body("unauthorized")
+    True -> {
+  wisp.require_method(request, http.Post, fn() {
+    wisp.require_json(request, fn(body) {
+      let uid = decode.run(body, decode.at(["harmony_uid"], decode.string))
+      let task = decode.run(body, decode.at(["task_id"], decode.string))
+      let done_at = decode.run(body, decode.at(["completed_at"], decode.string))
+
+      case uid, task, done_at {
+        Ok(uid), Ok(task_id), Ok(completed_at) -> {
+          let completion =
+            time_session.CompletedTask(
+              harmony_uid: uid,
+              task_id: task_id,
+              completed_at: completed_at,
+            )
+          time_session_manager.record_external_completion(
+            time_manager,
+            completion,
+          )
+          wisp.response(200) |> wisp.string_body("ok")
+        }
+        _, _, _ -> wisp.response(400) |> wisp.string_body("invalid json")
+      }
+    })
+  })
+    }
+  }
+}
+
+fn handle_implementation_status(
+  implementations: implementation_manager.Manager,
+  request: wisp.Request,
+) -> wisp.Response {
+  case authorized(request) {
+    False -> wisp.response(401) |> wisp.string_body("unauthorized")
+    True -> {
+  wisp.require_method(request, http.Post, fn() {
+    wisp.require_json(request, fn(body) {
+      let id = decode.run(body, decode.at(["id"], decode.string))
+      let status = decode.run(body, decode.at(["status"], decode.string))
+      let pr_url = decode.run(body, decode.optional(decode.at(["pr_url"], decode.string)))
+      let branch = decode.run(body, decode.optional(decode.at(["branch"], decode.string)))
+      case id, status {
+        Ok(impl_id), Ok(status_value) -> {
+          let mapped_status = implementation_status_from_string(status_value)
+          implementation_manager.update_status(
+            implementations,
+            impl_id,
+            mapped_status,
+            optional_flatten(pr_url),
+            optional_flatten(branch),
+          )
+          wisp.response(200) |> wisp.string_body("ok")
+        }
+        _, _ -> wisp.response(400) |> wisp.string_body("invalid json")
+      }
+    })
+  })
+    }
+  }
+}
+
+fn handle_implementation_list(
+  implementations: implementation_manager.Manager,
+  request: wisp.Request,
+) -> wisp.Response {
+  case authorized(request) {
+    False -> wisp.response(401) |> wisp.string_body("unauthorized")
+    True -> {
+  wisp.require_method(request, http.Get, fn() {
+    let records = implementation_manager.all(implementations)
+    let json_records =
+      records
+      |> list.map(fn(record) {
+        let status = case record.status {
+          implementation.Queued -> "queued"
+          implementation.Running -> "running"
+          implementation.Completed -> "completed"
+          implementation.Errored(message) -> "errored: " <> message
+        }
+
+        json.object([
+          #("id", json.string(record.mandate.id)),
+          #("bill_id", json.string(record.mandate.bill_id)),
+          #("bill_title", json.string(record.mandate.bill_title)),
+          #("bill_summary", json.string(record.mandate.bill_summary)),
+          #("constitution_id", json.string(record.mandate.constitution_id)),
+          #("category", json.string(record.mandate.category)),
+          #("target_repo", json.string(record.mandate.target_repo)),
+          #("branch_hint", json.string(record.mandate.branch_hint)),
+          #("status", json.string(status)),
+          #(
+            "pr_url",
+            case record.pr_url {
+              Some(url) -> json.string(url)
+              None -> json.null()
+            },
+          ),
+          #(
+            "branch",
+            case record.branch {
+              Some(branch) -> json.string(branch)
+              None -> json.null()
+            },
+          ),
+        ])
+      })
+
+    wisp.json_response(
+      json.to_string(json.array(json_records, of: fn(x) { x })),
+      200,
+    )
+  })
+    }
+  }
 }
 
 fn handle_time_fragments(
@@ -337,6 +484,7 @@ fn handle_time_fragments(
         time_session_state.current_human_status,
         time_session_state.active_time_bill,
         time_session_state.recent_block_reports,
+        time_session_state.completed_external_tasks,
         time_session_state.resources,
         time_session_state.all_time_bills,
         roster,
@@ -378,11 +526,10 @@ fn build_immediate_time_bill(
   status: human_status.HumanStatus,
 ) -> time_bill.TimeBill {
   let title = "Immediate response for " <> status.timestamp
-  let purpose =
-    case status.current_tasks {
-      [] -> "Reactivate the rhythm with a quick check-in and priority refresh."
-      [first, .._] -> "Advance the next step: " <> first
-    }
+  let purpose = case status.current_tasks {
+    [] -> "Reactivate the rhythm with a quick check-in and priority refresh."
+    [first, ..] -> "Advance the next step: " <> first
+  }
   let micro_block = build_micro_block_from_status(status)
 
   time_bill.TimeBill(
@@ -400,15 +547,20 @@ fn build_immediate_time_bill(
   )
 }
 
-fn build_micro_block_from_status(status: human_status.HumanStatus) -> time_bill.MicroBlock {
+fn build_micro_block_from_status(
+  status: human_status.HumanStatus,
+) -> time_bill.MicroBlock {
   let duration = case status.block_preference {
     Some(value) -> value
     None -> 10
   }
 
-  let todd_tasks = ensure_nonempty(status.todd_needs, "Todd: revisit the status inputs.")
-  let delaney_tasks = ensure_nonempty(status.delaney_needs, "Delaney: review your notes.")
-  let joint_tasks = ensure_nonempty(status.current_tasks, "Sync on immediate priorities.")
+  let todd_tasks =
+    ensure_nonempty(status.todd_needs, "Todd: revisit the status inputs.")
+  let delaney_tasks =
+    ensure_nonempty(status.delaney_needs, "Delaney: review your notes.")
+  let joint_tasks =
+    ensure_nonempty(status.current_tasks, "Sync on immediate priorities.")
 
   let instructions =
     joint_tasks
@@ -419,11 +571,10 @@ fn build_micro_block_from_status(status: human_status.HumanStatus) -> time_bill.
     "Updated status summary keyed to the reflection prompts",
   ]
 
-  let limitation_note =
-    case status.hard_constraints {
-      [] -> "No new hard constraints beyond the status note."
-      constraints -> string.join(constraints, "; ")
-    }
+  let limitation_note = case status.hard_constraints {
+    [] -> "No new hard constraints beyond the status note."
+    constraints -> string.join(constraints, "; ")
+  }
 
   let reflection_prompts = [
     "What completed tasks can we mark done?",
@@ -453,7 +604,6 @@ fn ensure_nonempty(list: List(String), fallback: String) -> List(String) {
   }
 }
 
-
 pub fn main() {
   wisp.configure_logger()
 
@@ -464,6 +614,7 @@ pub fn main() {
   let mem = memory.init()
   let agents = senator_agents.start(roster, mem)
   let office_handle = office.start()
+  let implementations = implementation_manager.start()
   let initial_session = load_or_init_session(snapshot_path, docket)
   let manager = session_manager.start(initial_session)
   let initial_time_session = time_session.initial_time_session()
@@ -478,6 +629,7 @@ pub fn main() {
       speaking_roster,
       mem,
       agents,
+      implementations,
     )
 
   let router = fn(request) {
@@ -488,6 +640,7 @@ pub fn main() {
       roster,
       office_handle,
       time_manager,
+      implementations,
       request,
     )
   }
@@ -497,7 +650,7 @@ pub fn main() {
     |> wisp_mist.handler(secret_key_base)
     |> mist.new
     |> mist.bind("0.0.0.0")
-    |> mist.port(8080)
+    |> mist.port(8081)
     |> mist.start
 
   process.sleep_forever()
@@ -516,31 +669,39 @@ fn load_or_init_session(
   docket: List(session.Bill),
 ) -> session.Session {
   let llm_limit = env_int("HARMONY_MAX_LLM_CALLS", session.default_llm_limit())
+  let charter = active_constitution()
 
   let base_session = case session_store.load(snapshot_path) {
     Ok(Some(sess)) -> session.ensure_active(sess)
-    Ok(None) -> start_from_docket(docket)
+    Ok(None) -> start_from_docket(docket, charter)
     Error(message) -> {
       io.println(
         "Failed to load session snapshot (" <> snapshot_path <> "): " <> message,
       )
-      start_from_docket(docket)
+      start_from_docket(docket, charter)
     }
   }
 
   session.set_llm_calls_limit(base_session, llm_limit)
 }
 
-fn start_from_docket(docket: List(session.Bill)) -> session.Session {
+fn start_from_docket(
+  docket: List(session.Bill),
+  charter: constitution.Constitution,
+) -> session.Session {
   case docket {
     [] ->
-      session.initial_session(session.Bill(
+      session.initial_session_with_constitution(session.Bill(
         id: "AGATA-TIME-001",
         title: "Todd and Delaney Time Arrangements Legislation",
-        summary:
-          "Orchestrates the next set of micro-blocks for Todd and Delaney, keeping the AGATA shorelines alive with regenerative art, land, and tech.",
-      ))
-    [first, ..rest] -> session.initial_session_with_docket(first, rest)
+        summary: "Orchestrates the next set of micro-blocks for Todd and Delaney, keeping the AGATA shorelines alive with regenerative art, land, and tech.",
+      ), charter)
+    [first, ..rest] ->
+      session.initial_session_with_docket_and_constitution(
+        first,
+        rest,
+        charter,
+      )
   }
 }
 
@@ -549,8 +710,7 @@ fn bill_docket() -> List(session.Bill) {
     session.Bill(
       id: "AGATA-TIME-PRI-001",
       title: "AGATA Time Priorities Charter",
-      summary:
-        "A living manifesto that names AGATA's core priorities for the time legislation stream. "
+      summary: "A living manifesto that names AGATA's core priorities for the time legislation stream. "
         <> "Every senator should debate it as a priority-setting vehicle, propose sweeping amendments, "
         <> "and leave a record of why the Senate settles on each pillar and practice before issuing further time bills. "
         <> "Treat amendment proposals as instruments for clarifying what AGATA must do next and what principles will govern every subsequent micro-block.",
@@ -577,10 +737,40 @@ fn time_legislation_enabled() -> Bool {
   }
 }
 
+fn active_constitution() -> constitution.Constitution {
+  case envoy.get("HARMONY_CONSTITUTION_TEMPLATE") {
+    Ok(id) ->
+      case constitution.find_template(string.trim(id)) {
+        Some(template) -> template.base
+        None -> {
+          io.println(
+            "Unknown HARMONY_CONSTITUTION_TEMPLATE: " <> id <> ". Using genesis constitution.",
+          )
+          constitution.genesis()
+        }
+      }
+    Error(_) -> constitution.genesis()
+  }
+}
+
 fn autopilot_settings(snapshot_path: String) -> autopilot.Settings {
   let enabled_env = env_bool("HARMONY_AUTOPILOT_ENABLED", True)
   let tick_ms = env_int("HARMONY_AUTOPILOT_TICK_MS", 300)
   let steps_per_tick = env_int("HARMONY_AUTOPILOT_STEPS", 3)
+  let implementations_enabled = env_bool("HARMONY_IMPLEMENTATIONS_ENABLED", True)
+  let implementation_repo = case envoy.get("HARMONY_IMPLEMENT_REPO") {
+    Ok(value) -> value
+    Error(_) -> ""
+  }
+  let implementation_category = case envoy.get("HARMONY_IMPLEMENT_CATEGORY") {
+    Ok(value) -> value
+    Error(_) -> "code"
+  }
+  let implementation_repos_allowlist =
+    case envoy.get("HARMONY_IMPLEMENT_ALLOWLIST") {
+      Ok(value) -> string.split(value, ",") |> list.map(fn(s) { string.trim(s) })
+      Error(_) -> []
+    }
   let enabled = case envoy.get("OPENAI_API_KEY") {
     Ok(_) -> enabled_env
     Error(_) -> {
@@ -596,6 +786,10 @@ fn autopilot_settings(snapshot_path: String) -> autopilot.Settings {
     snapshot_path: snapshot_path,
     export_proceedings: env_bool("HARMONY_EXPORT_PROCEEDINGS", False),
     mode: autopilot_mode(),
+    implementations_enabled: implementations_enabled,
+    implementation_repo: implementation_repo,
+    implementation_category: implementation_category,
+    implementation_repos_allowlist: implementation_repos_allowlist,
   )
 }
 
@@ -622,6 +816,34 @@ fn env_int(name: String, default: Int) -> Int {
       }
     }
     Error(_) -> default
+  }
+}
+
+fn implementation_status_from_string(value: String) -> implementation.Status {
+  case string.lowercase(value) {
+    "running" -> implementation.Running
+    "completed" -> implementation.Completed
+    "errored" -> implementation.Errored("executor_error")
+    _ -> implementation.Queued
+  }
+}
+
+fn optional_flatten(value: Result(option.Option(a), b)) -> option.Option(a) {
+  case value {
+    Ok(opt) -> opt
+    Error(_) -> option.None
+  }
+}
+
+fn authorized(request: wisp.Request) -> Bool {
+  case envoy.get("HARMONY_API_TOKEN") {
+    Error(_) -> True
+    Ok(token) -> {
+      case http_request.get_header(request, "x-harmony-token") {
+        Ok(value) -> string.trim(value) == string.trim(token)
+        Error(_) -> False
+      }
+    }
   }
 }
 

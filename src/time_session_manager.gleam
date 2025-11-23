@@ -23,6 +23,7 @@ type Message {
   SetActiveTimeBill(time_bill.TimeBill, process.Subject(time_session.TimeSession))
   AddTimeBill(time_bill.TimeBill, process.Subject(time_session.TimeSession))
   UpdateTimeBill(time_bill.TimeBill, process.Subject(time_session.TimeSession))
+  RecordExternalCompletion(time_session.CompletedTask, process.Subject(time_session.TimeSession))
 }
 
 /// Start the manager with an initial `TimeSession`. Call this exactly once during
@@ -106,6 +107,16 @@ pub fn update_time_bill(
   process.receive_forever(reply)
 }
 
+/// Records an external task completion (e.g., Todoist) and returns the updated session.
+pub fn record_external_completion(
+  manager: Manager,
+  completion: time_session.CompletedTask,
+) -> time_session.TimeSession {
+  let reply = process.new_subject()
+  process.send(manager.mailbox, RecordExternalCompletion(completion, reply))
+  process.receive_forever(reply)
+}
+
 fn loop(
   mailbox: process.Subject(Message),
   current: time_session.TimeSession,
@@ -147,6 +158,18 @@ fn loop(
     }
     UpdateTimeBill(bill, reply) -> {
       let new_session = time_session.update_time_bill(current, bill)
+      process.send(reply, new_session)
+      loop(mailbox, new_session)
+    }
+    RecordExternalCompletion(completion, reply) -> {
+      let new_session = time_session.record_external_completion(current, completion)
+      io.println(
+        "[time senate] External task completed: "
+        <> completion.harmony_uid
+        <> " ("
+        <> completion.task_id
+        <> ")",
+      )
       process.send(reply, new_session)
       loop(mailbox, new_session)
     }
