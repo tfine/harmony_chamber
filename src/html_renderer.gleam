@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some, unwrap}
 import gleam/string
 import office
+import implementation
 import senators
 import session
 import theme
@@ -46,6 +47,7 @@ pub type LiveFragments {
     debate: String,
     amendment: String,
     roster: String,
+    implementations: String,
     alert: String,
     vote_active: Bool,
     amendment_considered: Bool,
@@ -59,6 +61,7 @@ pub fn render_session_page(
   current_theme: theme.Theme,
   query_params: List(#(String, String)),
   time_legislation_enabled: Bool,
+  implementations: List(implementation.Record),
 ) -> String {
   live_fragments(
     sess,
@@ -67,6 +70,7 @@ pub fn render_session_page(
     current_theme,
     query_params,
     time_legislation_enabled,
+    implementations,
   )
   |> render_session_page_from_fragments(current_theme)
 }
@@ -105,6 +109,7 @@ pub fn render_session_page_from_fragments(
           " <> main_section <> "
          </main>
          " <> fragments.roster <> "
+         " <> fragments.implementations <> "
        </div>
      " <> refresh_script <> "
      </body>
@@ -118,6 +123,7 @@ pub fn live_fragments(
   current_theme: theme.Theme,
   query_params: List(#(String, String)),
   time_legislation_enabled: Bool,
+  implementations: List(implementation.Record),
 ) -> LiveFragments {
   let hero = render_hero(sess, autopilot_running, current_theme, time_legislation_enabled)
   let bill_section = render_bill(sess.bill)
@@ -127,6 +133,7 @@ pub fn live_fragments(
     render_debate_log(pagination, current_theme, query_params)
   let amendment_section = render_amendments(sess.amendments)
   let roster_section = render_roster(sess, senators_list)
+  let impl_section = render_implementations_panel(implementations)
   let error_section = render_error_banner(sess.last_error)
   let pending_amendment =
     sess.amendments
@@ -144,6 +151,7 @@ pub fn live_fragments(
     debate: debate_section,
     amendment: amendment_section,
     roster: roster_section,
+    implementations: impl_section,
     alert: error_section,
     vote_active: case sess.status {
       session.Voting(_) -> True
@@ -1119,10 +1127,53 @@ fn render_error_banner(error: Option(String)) -> String {
     None -> ""
     Some(message) -> "<div class=\"alert\">
          <p>LLM decision error: " <> escape_html(message) <> "</p>
-       </div>"
+  </div>"
+  }
+  "<div id=\"alert-banner\">" <> content <> "</div>"
+}
+
+fn render_implementations_panel(records: List(implementation.Record)) -> String {
+  let items =
+    case records {
+      [] -> "<p class=\"empty\">No implementation mandates yet.</p>"
+      _ ->
+        records
+        |> list.take(8)
+        |> list.map(render_implementation_item)
+        |> string.join("\n")
+    }
+
+  "<section class=\"card roster\">
+     <div class=\"card-header\">
+       <h2>Implementation Queue</h2>
+       <p>Mandates → GitHub PRs</p>
+     </div>
+     <div class=\"card-body\">
+       " <> items <> "
+     </div>
+   </section>"
+}
+
+fn render_implementation_item(record: implementation.Record) -> String {
+  let status_text = case record.status {
+    implementation.Queued -> "Queued"
+    implementation.Running -> "Running"
+    implementation.Completed -> "Completed"
+    implementation.Errored(message) -> "Errored: " <> message
+  }
+  let pr_link = case record.pr_url {
+    Some(url) -> "<a href=\"" <> url <> "\">PR</a>"
+    None -> ""
   }
 
-  "<div id=\"alert-banner\">" <> content <> "</div>"
+  "<div class=\"impl-row\">
+     <div>
+       <strong>" <> record.mandate.bill_id <> "</strong>
+       <span class=\"impl-title\">" <> record.mandate.bill_title <> "</span>
+       <div class=\"impl-meta\">Repo: " <> record.mandate.target_repo <> "</div>
+     </div>
+     <div class=\"impl-status\">" <> status_text <> " " <> pr_link <> "</div>
+   </div>"
 }
 
 fn render_status_line(sess: session.Session) -> String {

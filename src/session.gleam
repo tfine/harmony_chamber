@@ -1,3 +1,4 @@
+import constitution
 import debate
 import gleam/dict.{type Dict}
 import gleam/int
@@ -52,6 +53,8 @@ pub type CompletedBill {
 pub type Session {
   Session(
     bill: Bill,
+    constitution_id: String,
+    procedures: constitution.ProceduralRules,
     debate_turns: List(debate.DebateTurn),
     vote_intents: Dict(String, debate.VoteIntent),
     status: SessionStatus,
@@ -79,15 +82,33 @@ pub type VoteResult {
   VoteResult(tally: VoteTally, passed: Bool)
 }
 
-// Require at least this many explicit call_vote signals before auto-transitioning.
-const call_vote_threshold = 5
-const automatic_vote_turn_limit = 16
 const default_inbox_limit = 6
 const vote_reminder_rounds = 6
 const default_llm_calls_limit = 1000
+
+// Safeguard defaults in case a constitution provides invalid numbers.
+const fallback_call_vote_support_needed = 5
+const fallback_auto_vote_turn_limit = 16
+
+/// Default procedural rules (derived from the genesis constitution).
+pub fn default_procedures() -> constitution.ProceduralRules {
+  constitution.genesis().procedures
+}
+
 pub fn initial_session(bill: Bill) -> Session {
+  initial_session_with_constitution(bill, constitution.genesis())
+}
+
+/// Start a session using a specific constitution so procedural rules match the
+/// chosen charter.
+pub fn initial_session_with_constitution(
+  bill: Bill,
+  charter: constitution.Constitution,
+) -> Session {
   Session(
     bill: bill,
+    constitution_id: charter.id,
+    procedures: charter.procedures,
     debate_turns: [],
     vote_intents: dict.new(),
     status: InDebate,
@@ -113,6 +134,18 @@ pub fn initial_session_with_docket(
 ) -> Session {
   Session(
     ..initial_session(bill),
+    upcoming_bills: upcoming,
+  )
+}
+
+/// Start with a custom constitution and docket.
+pub fn initial_session_with_docket_and_constitution(
+  bill: Bill,
+  upcoming: List(Bill),
+  charter: constitution.Constitution,
+) -> Session {
+  Session(
+    ..initial_session_with_constitution(bill, charter),
     upcoming_bills: upcoming,
   )
 }
@@ -313,10 +346,10 @@ pub fn vote_focus_for_transition(
       }
 
       let limit_reached =
-        list.length(session.debate_turns) >= automatic_vote_turn_limit
+        list.length(session.debate_turns) >= automatic_vote_limit(session)
 
       case decision_requests_vote
-        || call_vote_signals >= call_vote_threshold
+        || call_vote_signals >= call_vote_threshold(session)
         || limit_reached
       {
         True -> Some(select_vote_focus(session))
@@ -363,8 +396,7 @@ pub fn resolve_vote(session: Session) -> Session {
 
 fn close_with_result(session: Session) -> Session {
   let tally = tally_votes(session)
-  let VoteTally(yea: yea, nay: nay, abstain: _abstain) = tally
-  let passed = yea > nay
+  let passed = passes_threshold(tally, session.procedures.bill_majority)
   let result = VoteResult(tally: tally, passed: passed)
 
   Session(
@@ -382,8 +414,7 @@ fn resolve_amendment_vote(session: Session, amendment_id: Int) -> Session {
     None -> Session(..session, status: InDebate)
     Some(amendment) -> {
       let tally = tally_votes(session)
-      let VoteTally(yea: yea, nay: nay, abstain: _abstain) = tally
-      let passed = yea > nay
+      let passed = passes_threshold(tally, session.procedures.amendment_majority)
       let result = VoteResult(tally: tally, passed: passed)
 
       let updated_amendments =
@@ -662,6 +693,8 @@ pub fn advance_to_next_bill(session: Session) -> Session {
     [next, ..rest] ->
       Session(
         bill: next,
+        constitution_id: session.constitution_id,
+        procedures: session.procedures,
         debate_turns: [],
         vote_intents: dict.new(),
         status: InDebate,
@@ -706,4 +739,41 @@ fn format_transcript(turns: List(debate.DebateTurn)) -> String {
       <> turn.speech
   })
   |> string.join("\n\n")
+}
+
+fn call_vote_threshold(session: Session) -> Int {
+  let value = session.procedures.call_vote_support_needed
+  case value <= 0 {
+    True -> fallback_call_vote_support_needed
+    False -> value
+  }
+}
+
+fn automatic_vote_limit(session: Session) -> Int {
+  let value = session.procedures.automatic_vote_turn_limit
+  case value <= 0 {
+    True -> fallback_auto_vote_turn_limit
+    False -> value
+  }
+}
+
+fn passes_threshold(tally: VoteTally, threshold: Float) -> Bool {
+  let VoteTally(yea: yea, nay: nay, abstain: _abstain) = tally
+  let voters = yea + nay
+
+  case voters <= 0 {
+    True -> False
+    False -> {
+      let ratio = int.to_float(yea) /. int.to_float(voters)
+      ratio >=. clamp_threshold(threshold)
+    }
+  }
+}
+
+fn clamp_threshold(value: Float) -> Float {
+  case value {
+    value if value <. 0.0 -> 0.0
+    value if value >. 1.0 -> 1.0
+    _ -> value
+  }
 }
