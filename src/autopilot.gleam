@@ -7,6 +7,7 @@ import session_runner
 import session_store
 import senator_agents
 import senators
+import implementation_manager
 
 pub type Settings {
   Settings(
@@ -15,8 +16,12 @@ pub type Settings {
     steps_per_tick: Int,
     snapshot_path: String,
     export_proceedings: Bool,
-    mode: String, // "debate", "time", or "both"
-  )
+  mode: String, // "debate", "time", or "both"
+  implementations_enabled: Bool,
+  implementation_repo: String,
+  implementation_category: String,
+  implementation_repos_allowlist: List(String),
+)
 }
 
 const status_timeout_ms = 50
@@ -37,16 +42,21 @@ type State {
   State(
     manager: session_manager.Manager,
     roster: List(senators.Senator),
-    tick_ms: Int,
-    steps_per_tick: Int,
-    snapshot_path: String,
-    memory: memory.Memory,
-    running: Bool,
-    export_proceedings: Bool,
-    agents: senator_agents.Registry,
-    tick_inflight: Bool,
-    mode: String,
-  )
+  tick_ms: Int,
+  steps_per_tick: Int,
+  snapshot_path: String,
+  memory: memory.Memory,
+  running: Bool,
+  export_proceedings: Bool,
+  agents: senator_agents.Registry,
+  tick_inflight: Bool,
+  mode: String,
+  implementations_enabled: Bool,
+  implementation_repo: String,
+  implementation_category: String,
+  implementations: implementation_manager.Manager,
+  implementation_repos_allowlist: List(String),
+)
 }
 
 /// Starts a background process that periodically advances the session and
@@ -57,6 +67,7 @@ pub fn start(
   roster: List(senators.Senator),
   mem: memory.Memory,
   agents: senator_agents.Registry,
+  implementations: implementation_manager.Manager,
 ) -> Autopilot {
   let handshake = process.new_subject()
   let state = State(
@@ -71,6 +82,11 @@ pub fn start(
     agents: agents,
     tick_inflight: False,
     mode: settings.mode,
+    implementations_enabled: settings.implementations_enabled,
+    implementation_repo: settings.implementation_repo,
+    implementation_category: settings.implementation_category,
+    implementations: implementations,
+    implementation_repos_allowlist: settings.implementation_repos_allowlist,
   )
 
   let _pid =
@@ -180,6 +196,11 @@ fn spawn_tick_job(
   let steps = state.steps_per_tick
   let mem = state.memory
   let agents = state.agents
+  let implementations = state.implementations
+  let impl_enabled = state.implementations_enabled
+  let impl_repo = state.implementation_repo
+  let impl_category = state.implementation_category
+  let impl_allow = state.implementation_repos_allowlist
 
   let _ =
     process.spawn(fn() {
@@ -191,6 +212,11 @@ fn spawn_tick_job(
           steps,
           mem,
           agents,
+          implementations,
+          impl_enabled,
+          impl_repo,
+          impl_category,
+          impl_allow,
         )
       process.send(mailbox, TickCompleted(advanced))
     })

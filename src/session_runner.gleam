@@ -13,6 +13,8 @@ import senator_agents
 import senators
 import session
 import simplifile
+import implementation
+import implementation_manager
 
 /// Advance the session a fixed number of steps with LLM-driven debate.
 /// This centralises the fallback behaviour so both HTTP requests and the
@@ -23,8 +25,26 @@ pub fn run_steps(
   steps: Int,
   mem: memory.Memory,
   agents: senator_agents.Registry,
+  implementations: implementation_manager.Manager,
+  implementations_enabled: Bool,
+  implementation_repo: String,
+  implementation_category: String,
+  implementation_allowlist: List(String),
 ) -> session.Session {
-  run_steps_loop(start, roster, 0, steps, mem, agents)
+  run_steps_loop(
+    start,
+    roster,
+    0,
+    steps,
+    mem,
+    agents,
+    implementations,
+    implementations_enabled,
+    implementation_repo,
+    implementation_category,
+    implementation_allowlist,
+    list.length(start.completed_bills),
+  )
 }
 
 fn run_steps_loop(
@@ -34,13 +54,41 @@ fn run_steps_loop(
   target: Int,
   mem: memory.Memory,
   agents: senator_agents.Registry,
+  implementations: implementation_manager.Manager,
+  implementations_enabled: Bool,
+  implementation_repo: String,
+  implementation_category: String,
+  implementation_allowlist: List(String),
+  prev_completed_len: Int,
 ) -> session.Session {
   case completed >= target {
     True -> current
     False -> {
       case chamber.step_session(current, roster, agents, mem) {
         Ok(updated) ->
-          run_steps_loop(updated, roster, completed + 1, target, mem, agents)
+          run_steps_loop(
+            maybe_dispatch_implementations(
+              current,
+              updated,
+              implementations,
+          implementations_enabled,
+          implementation_repo,
+          implementation_category,
+          implementation_allowlist,
+          prev_completed_len,
+        ),
+            roster,
+            completed + 1,
+            target,
+            mem,
+            agents,
+            implementations,
+            implementations_enabled,
+            implementation_repo,
+            implementation_category,
+            implementation_allowlist,
+            list.length(updated.completed_bills),
+          )
         Error(error) -> {
           let fallback_session =
             apply_fallback_decision(current, roster, error, mem, agents)
@@ -51,8 +99,67 @@ fn run_steps_loop(
             target,
             mem,
             agents,
+            implementations,
+            implementations_enabled,
+            implementation_repo,
+            implementation_category,
+            implementation_allowlist,
+            prev_completed_len,
           )
         }
+      }
+    }
+  }
+}
+
+fn maybe_dispatch_implementations(
+  _previous: session.Session,
+  updated: session.Session,
+  implementations: implementation_manager.Manager,
+  enabled: Bool,
+  repo: String,
+  category: String,
+  allowlist: List(String),
+  prev_completed_len: Int,
+) -> session.Session {
+  case enabled && list.length(updated.completed_bills) > prev_completed_len {
+    False -> updated
+    True -> {
+      case updated.completed_bills {
+        [] -> updated
+        [latest, .._] ->
+          case latest.result {
+            Some(session.VoteResult(_tally, True)) -> {
+              case allow_implementation(repo, allowlist) {
+                False -> updated
+                True -> {
+                  let mandate =
+                    implementation.from_completed_bill(
+                      latest,
+                      updated.constitution_id,
+                      repo,
+                      category,
+                    )
+                  implementation_manager.enqueue(implementations, mandate)
+                  updated
+                }
+              }
+              updated
+            }
+            _ -> updated
+          }
+      }
+    }
+  }
+}
+
+fn allow_implementation(repo: String, allowlist: List(String)) -> Bool {
+  case repo == "" {
+    True -> False
+    False -> {
+      case allowlist {
+        [] -> True
+        _ -> list.contains(allowlist, repo)
       }
     }
   }

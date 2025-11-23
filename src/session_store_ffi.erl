@@ -2,7 +2,7 @@
 -export([safe_binary_to_term/1]).
 
 safe_binary_to_term(Binary) ->
-    Tag = <<"harmony_snapshot_v2">>,
+    Tag = <<"harmony_snapshot_v5">>,
     try binary_to_term(Binary) of
         {RawTag, Session} ->
             case normalize_tag(RawTag) of
