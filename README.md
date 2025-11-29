@@ -1,3 +1,5 @@
+# vibe coded and in rapid flux
+
 # harmony_chamber
 
 Harmony Chamber is a Gleam/Erlang application that simulates a live Senate floor.
